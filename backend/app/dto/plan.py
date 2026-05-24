@@ -55,3 +55,19 @@ class TripPlanResponse(BaseModel):
     current_version: TripPlanVersionResponse | None = None
 
     model_config = {"from_attributes": True}
+
+
+class PlanSummaryResponse(BaseModel):
+    plan_id: int
+    title: str
+    city: str
+    start_date: date
+    end_date: date
+    budget_range: str
+    current_version_id: int
+    current_version_no: int
+    estimated_total: int | None
+    risk_level: str
+    pace: str
+    warning_count: int
+    updated_at: datetime

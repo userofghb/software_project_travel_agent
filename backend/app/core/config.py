@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     access_token_expire_minutes: int = Field(default=1440, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
-    database_url: str = Field(default="sqlite:///./backend/data/app.db", alias="DATABASE_URL")
+    database_url: str = Field(
+        default="mysql+pymysql://root:root@127.0.0.1:3306/travel_agent?charset=utf8mb4",
+        alias="DATABASE_URL",
+    )
     agent_provider_mode: str = Field(default="auto", alias="AGENT_PROVIDER_MODE")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")

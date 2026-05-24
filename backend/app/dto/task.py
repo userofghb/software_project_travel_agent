@@ -19,3 +19,18 @@ class PlanTaskStatusResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TaskLogItem(BaseModel):
+    step: str
+    status: str
+    message: str
+    progress: int
+    timestamp: datetime
+
+
+class TaskLogsResponse(BaseModel):
+    task_id: int
+    status: str
+    progress: int
+    logs: list[TaskLogItem]

@@ -1,4 +1,5 @@
 from datetime import date
+import copy
 
 from fastapi import BackgroundTasks, HTTPException, status
 from sqlmodel import Session
@@ -9,6 +10,7 @@ from app.core.time import utc_now
 from app.db.models import PlanTask, TripPlan, TripPlanVersion, User
 from app.db.session import get_session
 from app.dto.plan import (
+    PlanSummaryResponse,
     TripPlanCreateRequest,
     TripPlanEditRequest,
     TripPlanResponse,
@@ -118,6 +120,69 @@ class PlanService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found for plan")
         return self._warnings_for_version(plan.id, version)
 
+    def restore_version(self, user: User, plan_id: int, version_id: int) -> TripPlanVersionResponse:
+        plan = self._get_owned_plan(plan_id, user)
+        version = self._get_owned_version(version_id, user)
+        if version.plan_id != plan.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found for plan")
+
+        latest = self.versions.get_latest_for_plan(plan.id)
+        new_version = TripPlanVersion(
+            plan_id=plan.id,
+            parent_version_id=version.id,
+            owner_user_id=user.id,
+            version_no=(latest.version_no if latest else 0) + 1,
+            source_type="restored",
+            content_json=copy.deepcopy(version.content_json),
+            change_summary=f"restored from version {version.version_no}",
+        )
+        saved = self.versions.create(new_version)
+        plan.current_version_id = saved.id
+        restored_title = saved.content_json.get("title")
+        if isinstance(restored_title, str) and restored_title.strip():
+            plan.title = restored_title.strip()
+        plan.updated_at = utc_now()
+        self.plans.save(plan)
+        return TripPlanVersionResponse.model_validate(saved)
+
+    def get_plan_summary(self, plan_id: int, user: User) -> PlanSummaryResponse:
+        plan = self._get_owned_plan(plan_id, user)
+        version = self._require_current_version(plan)
+        content = version.content_json if isinstance(version.content_json, dict) else {}
+        budget = content.get("budget") if isinstance(content.get("budget"), dict) else {}
+        estimated_total = budget.get("estimated_total")
+        if not isinstance(estimated_total, int):
+            estimated_total = None
+
+        warnings = self._warnings_for_version(plan.id, version).warnings
+        warning_count = len(warnings)
+        if any(item.level == "high" for item in warnings):
+            risk_level = "high"
+        elif warning_count > 0:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+
+        pace = content.get("pace")
+        if not isinstance(pace, str) or not pace.strip():
+            pace = self._infer_pace(content)
+
+        return PlanSummaryResponse(
+            plan_id=plan.id,
+            title=plan.title,
+            city=plan.city,
+            start_date=plan.start_date,
+            end_date=plan.end_date,
+            budget_range=plan.budget_range,
+            current_version_id=version.id,
+            current_version_no=version.version_no,
+            estimated_total=estimated_total,
+            risk_level=risk_level,
+            pace=pace,
+            warning_count=warning_count,
+            updated_at=plan.updated_at,
+        )
+
     def _warnings_for_version(self, plan_id: int, version: TripPlanVersion) -> WeatherWarningResponse:
         weather_info = version.content_json.get("weather_info", [])
         return WeatherService.build_warnings(plan_id, version.id, weather_info)
@@ -157,6 +222,28 @@ class PlanService:
         if not version or version.owner_user_id != user.id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found")
         return version
+
+    def _infer_pace(self, content: dict) -> str:
+        days = content.get("days")
+        if not isinstance(days, list) or not days:
+            return "relaxed"
+
+        activity_counts = []
+        for day in days:
+            if not isinstance(day, dict):
+                continue
+            activities = day.get("activities")
+            if isinstance(activities, list):
+                activity_counts.append(len(activities))
+        if not activity_counts:
+            return "relaxed"
+
+        avg = sum(activity_counts) / len(activity_counts)
+        if avg >= 5:
+            return "intensive"
+        if avg >= 4:
+            return "balanced"
+        return "relaxed"
 
 
 def process_plan_task(task_id: int) -> None:

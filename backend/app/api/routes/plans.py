@@ -4,6 +4,7 @@ from sqlmodel import Session
 from app.api.deps import get_current_user, get_db
 from app.db.models import User
 from app.dto.plan import (
+    PlanSummaryResponse,
     TripPlanCreateRequest,
     TripPlanEditRequest,
     TripPlanResponse,
@@ -43,6 +44,15 @@ def get_plan(
     return PlanService(session).get_plan(plan_id, current_user)
 
 
+@router.get("/{plan_id}/summary", response_model=PlanSummaryResponse)
+def get_plan_summary(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> PlanSummaryResponse:
+    return PlanService(session).get_plan_summary(plan_id, current_user)
+
+
 @router.get("/{plan_id}/versions", response_model=list[TripPlanVersionResponse])
 def list_plan_versions(
     plan_id: int,
@@ -79,6 +89,16 @@ def edit_plan_version(
     session: Session = Depends(get_db),
 ) -> TripPlanVersionResponse:
     return PlanService(session).edit_version(current_user, plan_id, version_id, payload)
+
+
+@router.post("/{plan_id}/versions/{version_id}/restore", response_model=TripPlanVersionResponse)
+def restore_plan_version(
+    plan_id: int,
+    version_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> TripPlanVersionResponse:
+    return PlanService(session).restore_version(current_user, plan_id, version_id)
 
 
 @router.get("/{plan_id}/warnings", response_model=WeatherWarningResponse)
