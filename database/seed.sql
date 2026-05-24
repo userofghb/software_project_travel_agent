@@ -18,7 +18,7 @@ VALUES
     1,
     'alice',
     'alice@example.com',
-    '$9DYbcoJlEDEvWSD1UCaGRoFnlF0yLcyxreTBwUcsp/M',
+    '$pbkdf2-sha256$29000$3puzllLK.R8jxLh3TglhjA$jKE00rAK7Dq.cG1OMRvH7LmnoeE4ma42u76jVido5jo',
     'active',
     NOW(),
     NOW()
@@ -27,7 +27,7 @@ VALUES
     2,
     'li',
     'li@example.com',
-    '$9DYbcoJlEDEvWSD1UCaGRoFnlF0yLcyxreTBwUcsp/M',
+    '$pbkdf2-sha256$29000$3puzllLK.R8jxLh3TglhjA$jKE00rAK7Dq.cG1OMRvH7LmnoeE4ma42u76jVido5jo',
     'active',
     NOW(),
     NOW()
@@ -36,7 +36,7 @@ VALUES
     3,
     'wang',
     'wang@example.com',
-    '$9DYbcoJlEDEvWSD1UCaGRoFnlF0yLcyxreTBwUcsp/M',
+    '$pbkdf2-sha256$29000$3puzllLK.R8jxLh3TglhjA$jKE00rAK7Dq.cG1OMRvH7LmnoeE4ma42u76jVido5jo',
     'disabled',
     NOW(),
     NOW()
