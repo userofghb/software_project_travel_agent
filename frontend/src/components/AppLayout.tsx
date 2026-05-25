@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from "react";
 import { Layout, Menu, Space, Typography, Button, Avatar, Dropdown, theme } from "antd";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Compass, User, LayoutDashboard, History, GitMerge, LogOut, Map } from "lucide-react";
+import { Compass, User, LayoutDashboard, History, LogOut, Map } from "lucide-react";
 
 import { useAuthStore } from "../store/auth";
 
@@ -73,11 +73,6 @@ export function AppLayout({ children }: PropsWithChildren) {
               key: "/history", 
               icon: <History size={18} />, 
               label: <Link to="/history">方案档案馆</Link> 
-            },
-            { 
-              key: "/versions", 
-              icon: <GitMerge size={18} />, 
-              label: <Link to="/versions">版本控制</Link> 
             },
             { 
               key: "/profile", 
