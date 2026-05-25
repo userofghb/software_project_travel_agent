@@ -63,6 +63,28 @@ def test_profile_update(client):
     assert "自然" in data["profile_summary"]
 
 
+def test_profile_interest_tags_update(client):
+    register(client)
+    headers = login(client)
+
+    update_response = client.put(
+        "/api/profile/me/interests",
+        headers=headers,
+        json={
+            "interest_tags": ["美食", "博物馆", "城市漫步"],
+        },
+    )
+    assert update_response.status_code == 200
+    update_data = update_response.json()
+    assert update_data["interest_tags"] == ["美食", "博物馆", "城市漫步"]
+    assert "美食" in update_data["profile_summary"]
+
+    get_response = client.get("/api/profile/me/interests", headers=headers)
+    assert get_response.status_code == 200
+    get_data = get_response.json()
+    assert get_data["interest_tags"] == ["美食", "博物馆", "城市漫步"]
+
+
 def test_plan_task_version_and_warnings_flow(client):
     register(client)
     headers = login(client)

@@ -22,3 +22,14 @@ class UserProfileResponse(BaseModel):
     profile: UserProfileBase
     profile_summary: str
     updated_at: datetime
+
+
+class InterestTagsUpdateRequest(BaseModel):
+    interest_tags: list[str] = Field(default_factory=list)
+
+
+class InterestTagsResponse(BaseModel):
+    user_id: int
+    interest_tags: list[str]
+    profile_summary: str
+    updated_at: datetime
