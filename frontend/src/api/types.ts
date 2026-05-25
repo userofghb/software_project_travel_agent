@@ -13,3 +13,19 @@ export type TripPlanVersionResponse = components["schemas"]["TripPlanVersionResp
 export type PlanTaskCreateResponse = components["schemas"]["PlanTaskCreateResponse"];
 export type PlanTaskStatusResponse = components["schemas"]["PlanTaskStatusResponse"];
 export type WeatherWarningResponse = components["schemas"]["WeatherWarningResponse"];
+
+export type PlanSummaryResponse = {
+  plan_id: number;
+  title: string;
+  city: string;
+  start_date: string;
+  end_date: string;
+  budget_range: string;
+  current_version_id: number;
+  current_version_no: number;
+  estimated_total: number | null;
+  risk_level: string;
+  pace: string;
+  warning_count: number;
+  updated_at: string;
+};

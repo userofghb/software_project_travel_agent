@@ -160,11 +160,11 @@ export function HomePage() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Text style={{ color: 'rgba(255,255,255,0.8)' }}>天气风险</Text>
-                  <Text strong style={{ color: '#faad14' }}>medium</Text>
+                  <Text strong style={{ color: '#faad14' }}>中</Text>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <Text style={{ color: 'rgba(255,255,255,0.8)' }}>行程节奏</Text>
-                  <Text strong style={{ color: '#52c41a' }}>balanced</Text>
+                  <Text strong style={{ color: '#52c41a' }}>适中</Text>
                 </div>
               </Space>
             </Card>
@@ -301,10 +301,11 @@ function PlanSummaryMetrics({ planId }: { planId: number }) {
   });
 
   const summary = summaryQuery.data;
-  const riskLevel = summary?.risk_level ?? '-';
-  const pace = summary?.pace ?? '-';
+  const riskLevelRaw = summary?.risk_level ?? '-';
+  const riskLevel = mapRiskLevel(riskLevelRaw);
+  const pace = mapPace(summary?.pace ?? '-');
   const budget = summary?.estimated_total;
-  const riskColor = riskLevel === 'high' ? '#f5222d' : riskLevel === 'medium' ? '#faad14' : '#52c41a';
+  const riskColor = riskLevelRaw === 'high' ? '#f5222d' : riskLevelRaw === 'medium' ? '#faad14' : '#52c41a';
 
   return (
     <Row gutter={[0, 12]}>
@@ -330,7 +331,19 @@ function PlanSummaryMetrics({ planId }: { planId: number }) {
   );
 }
 
+function mapRiskLevel(level: string): string {
+  if (level === 'high') return '高';
+  if (level === 'medium') return '中';
+  if (level === 'low') return '低';
+  return level;
+}
 
+function mapPace(pace: string): string {
+  if (pace === 'intensive') return '紧凑';
+  if (pace === 'balanced') return '适中';
+  if (pace === 'relaxed') return '轻松';
+  return pace;
+}
 
 
 

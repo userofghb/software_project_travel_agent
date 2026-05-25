@@ -1,5 +1,6 @@
 import { apiRequest } from "./client";
 import type {
+  PlanSummaryResponse,
   PlanTaskCreateResponse,
   TripPlanCreateRequest,
   TripPlanEditRequest,
@@ -22,6 +23,10 @@ export function getPlan(planId: number) {
   return apiRequest<TripPlanResponse>(`/api/plans/${planId}`);
 }
 
+export function getPlanSummary(planId: number) {
+  return apiRequest<PlanSummaryResponse>(`/api/plans/${planId}/summary`);
+}
+
 export function listPlanVersions(planId: number) {
   return apiRequest<TripPlanVersionResponse[]>(`/api/plans/${planId}/versions`);
 }
@@ -37,5 +42,11 @@ export function editPlanVersion(planId: number, versionId: number, payload: Trip
   return apiRequest<TripPlanVersionResponse>(`/api/plans/${planId}/versions/${versionId}`, {
     method: "PUT",
     body: payload,
+  });
+}
+
+export function restorePlanVersion(planId: number, versionId: number) {
+  return apiRequest<TripPlanVersionResponse>(`/api/plans/${planId}/versions/${versionId}/restore`, {
+    method: "POST",
   });
 }
