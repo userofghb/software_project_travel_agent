@@ -7,11 +7,13 @@ from app.services.providers import MockRouteProvider, get_route_provider
 def run_route_agent(state: PlanningState) -> dict[str, Any]:
     provider = get_route_provider()
     final_plan = dict(state.final_plan)
+    route_attractions = _merge_route_attractions(final_plan.get("attractions"), state.attractions)
+    final_plan["attractions"] = route_attractions
     try:
         map_data = provider.build_routes(
             days=final_plan.get("days", []),
             hotel=final_plan.get("hotel") or state.hotels,
-            attractions=final_plan.get("attractions") or state.attractions,
+            attractions=route_attractions,
             transport_preference=state.request.get("transport_preference", "public_transit"),
             city=state.request["city"],
         )
@@ -35,3 +37,49 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
         "errors": errors,
         "progress_events": [*state.progress_events, "route"],
     }
+
+
+def _merge_route_attractions(plan_attractions: Any, state_attractions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    index: dict[str, int] = {}
+
+    def keys_for(item: dict[str, Any]) -> list[str]:
+        keys = []
+        for key in (item.get("id"), item.get("poi_id"), item.get("name")):
+            if key:
+                keys.append(str(key))
+        return keys
+
+    def upsert(item: Any) -> None:
+        if not isinstance(item, dict):
+            return
+        keys = keys_for(item)
+        existing_index = next((index[key] for key in keys if key in index), None)
+        if existing_index is None:
+            record = dict(item)
+            if record.get("id") is None and record.get("poi_id"):
+                record["id"] = record["poi_id"]
+            merged.append(record)
+            position = len(merged) - 1
+            for key in keys_for(record):
+                index[key] = position
+            return
+
+        record = merged[existing_index]
+        previous_location = record.get("location")
+        for key, value in item.items():
+            if value not in (None, "", [], {}):
+                record[key] = value
+        if not record.get("location") and previous_location:
+            record["location"] = previous_location
+        if record.get("id") is None and record.get("poi_id"):
+            record["id"] = record["poi_id"]
+        for key in keys_for(record):
+            index[key] = existing_index
+
+    for item in state_attractions or []:
+        upsert(item)
+    for item in plan_attractions or []:
+        upsert(item)
+
+    return merged

@@ -21,7 +21,7 @@ def login(payload: LoginRequest, session: Session = Depends(get_db)) -> TokenRes
     service = AuthService(session)
     token = service.login(payload)
     if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     return token
 
 

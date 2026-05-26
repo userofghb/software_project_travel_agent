@@ -82,7 +82,7 @@ export function AppLayout({ children }: PropsWithChildren) {
           ]}
         />
         
-        {/* Mock Map / Activity Background at bottom of Sider */}
+        {/* Activity background at bottom of Sider */}
         <div style={{ position: 'absolute', bottom: 20, width: '100%', padding: '0 24px', opacity: 0.5 }}>
            <div style={{ 
              height: 120, 

@@ -1,6 +1,7 @@
 import os
 
 from app.agents.graph import build_planning_graph, run_planning_graph
+from app.agents.route_agent import run_route_agent
 from app.agents.state import PlanningState
 from app.core.config import get_settings
 from app.services.providers import MockAttractionProvider
@@ -99,3 +100,49 @@ def test_planning_graph_keeps_plan_usable_when_attraction_provider_fails(monkeyp
     assert state.final_plan["attractions"] == []
     assert state.final_plan["days"][0]["activities"][0]["title"]
     assert any("attraction provider failed" in error for error in state.errors)
+
+
+def test_route_agent_uses_activity_locations_when_plan_attractions_are_partial():
+    state = make_state(
+        hotels={
+            "id": "hotel-1",
+            "name": "Base Hotel",
+            "location": {"lng": 121.49, "lat": 31.23},
+        },
+        attractions=[
+            {
+                "id": "poi-1",
+                "name": "City Museum",
+                "location": {"lng": 121.48, "lat": 31.22},
+            }
+        ],
+        final_plan={
+            "hotel": {
+                "id": "hotel-1",
+                "name": "Base Hotel",
+                "location": {"lng": 121.49, "lat": 31.23},
+            },
+            "attractions": [{"poi_id": "poi-1", "name": "City Museum"}],
+            "days": [
+                {
+                    "date": "2026-05-01",
+                    "activities": [
+                        {
+                            "time": "09:00",
+                            "type": "attraction",
+                            "title": "City Museum visit",
+                            "poi_id": "poi-1",
+                            "location": {"lng": 121.48, "lat": 31.22},
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    result = run_route_agent(state)
+    map_data = result["final_plan"]["map"]
+
+    assert len(map_data["points"]) == 2
+    assert any(point["id"] == "poi-1" for point in map_data["points"])
+    assert len(map_data["routes"]) == 1

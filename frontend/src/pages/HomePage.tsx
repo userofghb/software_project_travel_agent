@@ -1,5 +1,5 @@
 ﻿import React, { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Typography, Row, Col, Card, Input, Button, Tag, Space, Divider, message, Badge, Alert, Empty, Spin } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -21,7 +21,8 @@ import {
   CheckCircle2,
   ArrowRight,
 } from 'lucide-react';
-import { getPlanSummary, listPlans } from '../api/plans';
+import { createPlan, getPlanSummary, listPlans } from '../api/plans';
+import type { TripPlanCreateRequest } from '../api/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -43,6 +44,16 @@ export function HomePage() {
     queryKey: ['plans', 'home'],
     queryFn: listPlans,
   });
+  const createPlanMutation = useMutation({
+    mutationFn: createPlan,
+    onSuccess: (task) => {
+      message.success('已创建真实生成任务');
+      navigate(`/tasks/${task.task_id}`);
+    },
+    onError: (err: Error) => {
+      message.error(err.message || '创建生成任务失败');
+    },
+  });
   const plans = useMemo(() => {
     const data = plansQuery.data as unknown;
     if (Array.isArray(data)) return data;
@@ -63,11 +74,12 @@ export function HomePage() {
     }
     setIsParsing(true);
     setTimeout(() => {
+      const payload = buildCreatePayload(demandText);
       setParsedData({
-        destination: '成都',
-        duration: '3天',
-        budget: '¥3000',
-        style: '轻松休闲、美食优先',
+        destination: payload.city,
+        duration: formatDuration(payload.start_date, payload.end_date),
+        budget: mapBudgetLabel(payload.budget_range),
+        style: payload.notes || '结合用户画像生成',
       });
       setParsed(true);
       setIsParsing(false);
@@ -76,11 +88,19 @@ export function HomePage() {
   };
 
   const handleGenerate = () => {
-    if (!parsed) {
-      handleParse();
+    if (!demandText.trim()) {
+      message.warning('请输入您的旅行想法');
       return;
     }
-    navigate('/tasks/1');
+    const payload = buildCreatePayload(demandText);
+    setParsedData({
+      destination: payload.city,
+      duration: formatDuration(payload.start_date, payload.end_date),
+      budget: mapBudgetLabel(payload.budget_range),
+      style: payload.notes || '结合用户画像生成',
+    });
+    setParsed(true);
+    createPlanMutation.mutate(payload);
   };
 
   const applyTemplate = (template: string) => {
@@ -183,7 +203,7 @@ export function HomePage() {
                 </Button>
               </Col>
               <Col>
-                <Button type="primary" size="large" icon={<ArrowRight size={18} />} onClick={handleGenerate} style={{ borderRadius: 8, background: '#13c2c2', borderColor: '#13c2c2' }}>
+                <Button type="primary" size="large" icon={<ArrowRight size={18} />} loading={createPlanMutation.isPending} onClick={handleGenerate} style={{ borderRadius: 8, background: '#13c2c2', borderColor: '#13c2c2' }}>
                   {parsed ? '开始生成完整方案' : '解析并生成方案'}
                 </Button>
               </Col>
@@ -343,6 +363,88 @@ function mapPace(pace: string): string {
   if (pace === 'balanced') return '适中';
   if (pace === 'relaxed') return '轻松';
   return pace;
+}
+
+function buildCreatePayload(text: string): TripPlanCreateRequest {
+  const city = extractCity(text);
+  const days = extractDays(text);
+  const startDate = nextDate(7);
+  const endDate = addDays(startDate, days - 1);
+  const budgetRange = extractBudgetRange(text);
+
+  return {
+    title: `${city}${days}日旅行方案`,
+    city,
+    start_date: toDateString(startDate),
+    end_date: toDateString(endDate),
+    budget_range: budgetRange,
+    transport_preference: text.includes('自驾') ? 'driving' : text.includes('打车') ? 'taxi' : 'public_transit',
+    accommodation_preference: budgetRange === 'high' ? 'luxury' : budgetRange === 'low' ? 'budget' : 'comfort',
+    notes: text.trim(),
+  };
+}
+
+function extractCity(text: string): string {
+  const knownCities = ['北京', '上海', '广州', '深圳', '成都', '重庆', '杭州', '南京', '苏州', '西安', '武汉', '长沙', '厦门', '青岛', '大理', '桂林', '三亚'];
+  const matched = knownCities.find((city) => text.includes(city));
+  if (matched) return matched;
+
+  const match = text.match(/去([\u4e00-\u9fa5]{2,8})(?:玩|旅行|旅游|游|出差|，|,|\s|$)/);
+  return match?.[1] ?? '成都';
+}
+
+function extractDays(text: string): number {
+  const digitMatch = text.match(/(\d+)\s*[日天]/);
+  if (digitMatch) return clampDays(Number(digitMatch[1]));
+
+  const cnMap: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7 };
+  const cnMatch = text.match(/([一二两三四五六七])\s*[日天]/);
+  return clampDays(cnMatch ? cnMap[cnMatch[1]] : 3);
+}
+
+function extractBudgetRange(text: string): string {
+  const match = text.match(/预算\s*(\d+)/);
+  const amount = match ? Number(match[1]) : 0;
+  if (amount > 0) {
+    if (amount <= 2000) return 'low';
+    if (amount >= 6000) return 'high';
+    return 'medium';
+  }
+  if (text.includes('高端') || text.includes('品质')) return 'high';
+  if (text.includes('省钱') || text.includes('经济')) return 'low';
+  return 'medium';
+}
+
+function clampDays(days: number): number {
+  if (!Number.isFinite(days)) return 3;
+  return Math.min(Math.max(Math.round(days), 1), 10);
+}
+
+function nextDate(offsetDays: number): Date {
+  return addDays(new Date(), offsetDays);
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toDateString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDuration(startDate: string, endDate: string): string {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  return `${days}天`;
+}
+
+function mapBudgetLabel(range: string): string {
+  if (range === 'low') return '低预算';
+  if (range === 'high') return '高预算';
+  return '中等预算';
 }
 
 

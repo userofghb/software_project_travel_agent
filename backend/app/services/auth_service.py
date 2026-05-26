@@ -18,9 +18,9 @@ class AuthService:
 
     def register(self, payload: RegisterRequest) -> User:
         if self.users.get_by_username(payload.username):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already exists")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
         if self.users.get_by_email(payload.email):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="邮箱已被注册")
 
         user = User(
             username=payload.username,

@@ -70,6 +70,7 @@ class PlanTask(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)
     plan_id: int | None = Field(default=None, foreign_key="trip_plans.id", index=True)
+    task_type: str = Field(default="generate_plan")
     request_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: str = Field(default="pending", index=True)
     progress: int = Field(default=0)

@@ -30,14 +30,22 @@ def test_auth_register_login_and_me(client):
 
     duplicate_response = register(client)
     assert duplicate_response.status_code == 400
+    assert duplicate_response.json()["detail"] == "用户名已存在"
 
     bad_login = client.post("/api/auth/login", json={"username": "alice", "password": "wrong"})
     assert bad_login.status_code == 401
+    assert bad_login.json()["detail"] == "用户名或密码错误"
 
     headers = login(client)
     me_response = client.get("/api/auth/me", headers=headers)
     assert me_response.status_code == 200
     assert me_response.json()["username"] == "alice"
+
+    profile_response = client.get("/api/profile/me", headers=headers)
+    assert profile_response.status_code == 200
+    profile = profile_response.json()["profile"]
+    assert profile["travel_style"] == "深度游"
+    assert profile["interest_tags"] == ["历史", "美食"]
 
 
 def test_profile_update(client):

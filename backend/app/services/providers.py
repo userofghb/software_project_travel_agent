@@ -17,7 +17,7 @@ class ProviderConfigurationError(RuntimeError):
 
 def get_attraction_provider():
     if _should_use_real("amap"):
-        return AmapAttractionProvider()
+        return RobustAmapAttractionProvider()
     return MockAttractionProvider()
 
 
@@ -29,7 +29,7 @@ def get_hotel_provider():
 
 def get_weather_provider():
     if _should_use_real("amap"):
-        return AmapWeatherProvider()
+        return RobustAmapWeatherProvider()
     return MockWeatherProvider()
 
 
@@ -158,7 +158,7 @@ class MockRouteProvider:
         transport_preference: str,
         city: str,
     ) -> dict[str, Any]:
-        points = build_map_points(hotel, attractions)
+        points = build_map_points(hotel, attractions, days)
         routes = []
         for day in days:
             day_points = _points_for_day(day, points)
@@ -202,7 +202,7 @@ class RuleBasedPlannerProvider:
                 "预算按住宿、餐饮、交通、门票和弹性预留拆分，便于前端展示。",
             ],
             "map": {
-                "points": build_map_points(hotel, attractions),
+                "points": build_map_points(hotel, attractions, days),
                 "routes": [],
             },
         }
@@ -567,6 +567,88 @@ class AmapWeatherProvider:
         return items
 
 
+class RobustAmapAttractionProvider:
+    def search(self, city: str, interests: list[str]) -> list[dict[str, Any]]:
+        search_specs: list[tuple[str, str, int]] = [
+            (f"{city} 景点", "110000", 8),
+            (f"{city} 博物馆", "140000", 4),
+            (f"{city} 公园", "110000|110100|110200", 4),
+        ]
+        for interest in interests[:4]:
+            text = str(interest).strip()
+            if text:
+                search_specs.append((f"{city} {text}", "", 4))
+
+        seen: set[str] = set()
+        normalized: list[dict[str, Any]] = []
+        for keywords, types, offset in search_specs:
+            pois = _amap_place_text(city=city, keywords=keywords, types=types, offset=offset)
+            for poi in pois:
+                item = _normalize_poi(poi, fallback_type="attraction")
+                key = str(item.get("id") or item.get("name") or "")
+                if not key or key in seen or not item.get("location"):
+                    continue
+                seen.add(key)
+                normalized.append(item)
+                if len(normalized) >= 12:
+                    return normalized
+        return normalized
+
+
+class RobustAmapWeatherProvider:
+    def forecast(self, start_date: date, end_date: date, city: str) -> list[dict[str, Any]]:
+        lookup_values: list[str] = []
+        try:
+            adcode = _resolve_city_adcode(city)
+            if adcode:
+                lookup_values.append(adcode)
+        except Exception:
+            pass
+        lookup_values.append(city)
+
+        data: dict[str, Any] | None = None
+        last_error: Exception | None = None
+        for lookup_city in dict.fromkeys(lookup_values):
+            try:
+                candidate = _amap_get(
+                    "/v3/weather/weatherInfo",
+                    {"city": lookup_city, "extensions": "all", "output": "JSON"},
+                )
+                if candidate.get("forecasts"):
+                    data = candidate
+                    break
+            except Exception as exc:
+                last_error = exc
+        if data is None:
+            raise RuntimeError(f"Amap weather search failed: {last_error}")
+
+        forecasts = data.get("forecasts") or []
+        casts = forecasts[0].get("casts") or []
+        if not casts:
+            raise RuntimeError("Amap weather search returned no casts")
+
+        by_date = {item.get("date"): item for item in casts}
+        items: list[dict[str, Any]] = []
+        current = start_date
+        while current <= end_date:
+            raw = by_date.get(current.isoformat()) or casts[min(len(items), len(casts) - 1)]
+            condition = raw.get("dayweather") or raw.get("nightweather") or "unknown"
+            items.append(
+                {
+                    "date": current.isoformat(),
+                    "city": city,
+                    "condition": condition,
+                    "high": _safe_int(raw.get("daytemp")),
+                    "low": _safe_int(raw.get("nighttemp")),
+                    "wind": raw.get("daywind") or raw.get("nightwind"),
+                    "risk_score": _weather_risk_score(condition),
+                    "source": "amap",
+                }
+            )
+            current += timedelta(days=1)
+        return items
+
+
 class AmapRouteProvider:
     def build_routes(
         self,
@@ -576,7 +658,7 @@ class AmapRouteProvider:
         transport_preference: str,
         city: str,
     ) -> dict[str, Any]:
-        points = build_map_points(hotel, attractions)
+        points = build_map_points(hotel, attractions, days)
         routes = []
         mode = _route_mode(transport_preference)
 
@@ -766,30 +848,50 @@ def _normalize_poi(poi: dict[str, Any], fallback_type: str) -> dict[str, Any]:
     }
 
 
-def build_map_points(hotel: dict[str, Any], attractions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_map_points(
+    hotel: dict[str, Any],
+    attractions: list[dict[str, Any]],
+    days: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     points = []
-    if hotel.get("location"):
+    seen: set[str] = set()
+
+    def add_point(source: dict[str, Any], point_type: str, fallback_id: str | None = None) -> None:
+        location = _normalize_location(source.get("location"))
+        if location is None:
+            return
+
+        point_id = source.get("id") or source.get("poi_id") or fallback_id or source.get("name") or source.get("title")
+        name = source.get("name") or source.get("title") or str(point_id or "")
+        key = str(point_id or f"{location['lng']},{location['lat']}")
+        if key in seen:
+            return
+
+        seen.add(key)
         points.append(
             {
-                "id": hotel.get("id") or "hotel",
-                "name": hotel.get("name"),
-                "type": "hotel",
-                "address": hotel.get("address") or hotel.get("location_name"),
-                "location": hotel["location"],
+                "id": point_id,
+                "name": name,
+                "type": point_type,
+                "address": source.get("address") or source.get("location_name"),
+                "location": location,
             }
         )
+
+    add_point(hotel, "hotel", "hotel")
     for attraction in attractions:
-        if not attraction.get("location"):
+        if isinstance(attraction, dict):
+            add_point(attraction, "attraction")
+
+    for day in days or []:
+        if not isinstance(day, dict):
             continue
-        points.append(
-            {
-                "id": attraction.get("id") or attraction.get("name"),
-                "name": attraction.get("name"),
-                "type": "attraction",
-                "address": attraction.get("address"),
-                "location": attraction["location"],
-            }
-        )
+        for activity in day.get("activities") or []:
+            if not isinstance(activity, dict):
+                continue
+            activity_type = str(activity.get("type") or "activity")
+            point_type = "attraction" if activity_type == "attraction" else "activity"
+            add_point(activity, point_type)
     return points
 
 
@@ -904,6 +1006,19 @@ def _location_text(point: dict[str, Any]) -> str:
     return f"{location.get('lng')},{location.get('lat')}"
 
 
+def _normalize_location(value: Any) -> dict[str, float] | None:
+    if isinstance(value, dict):
+        lng = _safe_float(value.get("lng"))
+        lat = _safe_float(value.get("lat"))
+    elif isinstance(value, str):
+        lng, lat = _parse_location(value)
+    else:
+        return None
+    if lng is None or lat is None:
+        return None
+    return {"lng": lng, "lat": lat}
+
+
 def _parse_location(value: Any) -> tuple[float | None, float | None]:
     if not isinstance(value, str) or "," not in value:
         return None, None
@@ -926,6 +1041,13 @@ def _first_text(value: Any) -> str | None:
 def _safe_int(value: Any) -> int | None:
     try:
         return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -977,7 +1099,7 @@ def _ensure_plan_defaults(
     )
     plan["meals"] = plan.get("meals") or _extract_meals(plan["days"])
     plan["budget"] = _normalize_budget(plan.get("budget"), plan["days"], request, plan["hotel"])
-    plan.setdefault("map", {"points": build_map_points(hotel, attractions), "routes": []})
+    plan.setdefault("map", {"points": build_map_points(hotel, attractions, plan["days"]), "routes": []})
     return plan
 
 
@@ -1147,6 +1269,59 @@ def _normalize_budget(
             if key not in {"range", "estimated_total", "breakdown", "per_day", "assumptions"}:
                 computed[key] = value
     return computed
+
+
+def _budget_profile(budget_range: str) -> dict[str, Any]:
+    value = str(budget_range or "").lower()
+    if any(token in value for token in ("low", "budget", "经济", "低", "省钱", "实惠")):
+        return {
+            "lunch": 45,
+            "dinner": 65,
+            "ticket": 30,
+            "museum_ticket": 0,
+            "premium_ticket": 100,
+            "transport_day": 45,
+            "buffer_rate": 0.08,
+        }
+    if any(token in value for token in ("high", "luxury", "高", "品质", "豪华")):
+        return {
+            "lunch": 120,
+            "dinner": 180,
+            "ticket": 100,
+            "museum_ticket": 50,
+            "premium_ticket": 260,
+            "transport_day": 160,
+            "buffer_rate": 0.15,
+        }
+    return {
+        "lunch": 70,
+        "dinner": 110,
+        "ticket": 60,
+        "museum_ticket": 20,
+        "premium_ticket": 180,
+        "transport_day": 80,
+        "buffer_rate": 0.12,
+    }
+
+
+def _weather_risk_score(condition: str) -> int:
+    text = condition or ""
+    if any(keyword in text for keyword in ("暴雨", "大暴雨", "雷暴", "台风", "大雪")):
+        return -5
+    if any(keyword in text for keyword in ("雨", "雪", "大风", "高温", "霾")):
+        return -3
+    if any(keyword in text for keyword in ("晴", "云")):
+        return 1
+    return 2
+
+
+def _is_weather_risky(weather: dict[str, Any]) -> bool:
+    condition = str(weather.get("condition") or "").lower()
+    risk_score = weather.get("risk_score")
+    if isinstance(risk_score, (int, float)) and risk_score <= -2:
+        return True
+    risky_keywords = ("rain", "storm", "snow", "wind", "雨", "雪", "风", "高温", "霾")
+    return any(keyword in condition for keyword in risky_keywords)
 
 
 TRAVEL_PLAN_SCHEMA = {

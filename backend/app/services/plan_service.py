@@ -41,7 +41,11 @@ class PlanService:
         background_tasks: BackgroundTasks,
     ) -> PlanTaskCreateResponse:
         task = self.tasks.create(
-            PlanTask(user_id=user.id, request_json={"mode": "create", **payload.model_dump(mode="json")})
+            PlanTask(
+                user_id=user.id,
+                task_type="generate_plan",
+                request_json={"mode": "create", **payload.model_dump(mode="json")},
+            )
         )
         background_tasks.add_task(process_plan_task, task.id)
         return PlanTaskCreateResponse(task_id=task.id, status=task.status)
@@ -62,6 +66,7 @@ class PlanService:
             PlanTask(
                 user_id=user.id,
                 plan_id=plan.id,
+                task_type="generate_plan",
                 request_json={
                     "mode": "regenerate",
                     "parent_version_id": version_id,

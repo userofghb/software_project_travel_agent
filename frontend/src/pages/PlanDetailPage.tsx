@@ -32,9 +32,8 @@ import {
 } from '../api/plans';
 import { getPlanWarnings } from '../api/warnings';
 import type { TripPlanCreateRequest, TripPlanResponse, TripPlanVersionResponse } from '../api/types';
-import { mockPlanDetail } from '../utils/mockData';
+import { PlanMap, type MapPoint, type MapRoute } from '../components/PlanMap';
 import {
-  Map as MapIcon,
   SunSnow,
   Wallet,
   Activity,
@@ -53,6 +52,22 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 const { Title, Text, Paragraph } = Typography;
 
 const COLORS = ['#13c2c2', '#1890ff', '#faad14', '#eb2f96'];
+const EMPTY_PLAN_DETAIL = {
+  city: '',
+  days: 0,
+  date: '',
+  version: '-',
+  totalBudget: 0,
+  riskLevel: 'low',
+  pace: 'relaxed',
+  budgetBreakdown: [] as UiBudgetItem[],
+  weather: [] as UiWeather[],
+  itinerary: [] as UiDay[],
+  map: {
+    points: [] as MapPoint[],
+    routes: [] as MapRoute[],
+  },
+};
 
 type UiItineraryItem = {
   time: string;
@@ -66,6 +81,7 @@ type UiItineraryItem = {
 
 type UiDay = {
   day: number;
+  date?: string;
   items: UiItineraryItem[];
 };
 
@@ -93,6 +109,10 @@ type UiPlanDetail = {
   budgetBreakdown: UiBudgetItem[];
   weather: UiWeather[];
   itinerary: UiDay[];
+  map: {
+    points: MapPoint[];
+    routes: MapRoute[];
+  };
 };
 
 export function PlanDetailPage() {
@@ -169,7 +189,7 @@ export function PlanDetailPage() {
   const uiPlan = useMemo(
     () =>
       buildUiPlan({
-        fallback: mockPlanDetail,
+        fallback: EMPTY_PLAN_DETAIL,
         plan,
         summaryRiskLevel: summaryQuery.data?.risk_level,
         summaryPace: summaryQuery.data?.pace,
@@ -524,74 +544,12 @@ export function PlanDetailPage() {
               style={{ borderRadius: 16, overflow: 'hidden' }}
               bodyStyle={{ padding: 0 }}
             >
-              <div
-                style={{
-                  height: 250,
-                  background: '#e6f7ff',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundImage: 'radial-gradient(#91d5ff 1px, transparent 1px)',
-                  backgroundSize: '20px 20px',
-                }}
-              >
-                <MapIcon size={48} color="#1890ff" opacity={0.2} />
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '40%',
-                    left: '30%',
-                    width: 12,
-                    height: 12,
-                    background: '#1890ff',
-                    borderRadius: '50%',
-                    boxShadow: '0 0 0 4px rgba(24,144,255,0.2)',
-                  }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '60%',
-                    left: '50%',
-                    width: 12,
-                    height: 12,
-                    background: '#faad14',
-                    borderRadius: '50%',
-                    boxShadow: '0 0 0 4px rgba(250,173,20,0.2)',
-                  }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '30%',
-                    left: '70%',
-                    width: 12,
-                    height: 12,
-                    background: '#1890ff',
-                    borderRadius: '50%',
-                    boxShadow: '0 0 0 4px rgba(24,144,255,0.2)',
-                  }}
-                />
-                <svg
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-                >
-                  <path
-                    d="M 30% 40% L 50% 60% L 70% 30%"
-                    stroke="#1890ff"
-                    strokeWidth="2"
-                    strokeDasharray="4 4"
-                    fill="none"
-                    opacity={0.5}
-                  />
-                </svg>
-
-                <div style={{ position: 'absolute', bottom: 16, right: 16 }}>
-                  <Button size="small" style={{ borderRadius: 12 }}>
-                    查看大地图
-                  </Button>
-                </div>
-              </div>
+              <PlanMap
+                points={uiPlan.map.points}
+                routes={uiPlan.map.routes}
+                activeDate={activeItinerary?.date ?? String(activeItinerary?.day ?? '')}
+                height={300}
+              />
             </Card>
 
             <Card title="预算拆解" bordered={false} style={{ borderRadius: 16 }}>
@@ -811,7 +769,7 @@ function mapWeatherCondition(value: unknown): string {
 }
 
 function buildUiPlan(params: {
-  fallback: typeof mockPlanDetail;
+  fallback: typeof EMPTY_PLAN_DETAIL;
   plan?: TripPlanResponse;
   summaryRiskLevel?: string;
   summaryPace?: string;
@@ -837,6 +795,7 @@ function buildUiPlan(params: {
 
   const budget = extractBudget(content, fallback.budgetBreakdown, summaryBudget ?? undefined);
   const weather = extractWeather(content, warnings, fallback.weather);
+  const map = extractMap(content, fallback.map);
 
   return {
     city,
@@ -849,10 +808,11 @@ function buildUiPlan(params: {
     budgetBreakdown: budget.breakdown,
     weather,
     itinerary,
+    map,
   };
 }
 
-function extractItinerary(content: Record<string, unknown>, fallback: typeof mockPlanDetail.itinerary): UiDay[] {
+function extractItinerary(content: Record<string, unknown>, fallback: typeof EMPTY_PLAN_DETAIL.itinerary): UiDay[] {
   const fallbackMapped: UiDay[] = fallback.map((day) => ({
     day: day.day,
     items: day.items.map((item) => ({
@@ -891,6 +851,7 @@ function extractItinerary(content: Record<string, unknown>, fallback: typeof moc
 
       return {
         day: toNumber(dayObj.day_number) || index + 1,
+        date: readString(dayObj, 'date') || undefined,
         items,
       };
     })
@@ -932,7 +893,7 @@ function extractBudget(
 function extractWeather(
   content: Record<string, unknown>,
   warnings: Array<{ date: string; level: string; suggestion: string }>,
-  fallback: typeof mockPlanDetail.weather,
+  fallback: typeof EMPTY_PLAN_DETAIL.weather,
 ): UiWeather[] {
   const warningMap = new globalThis.Map(warnings.map((item) => [item.date, item]));
 
@@ -984,6 +945,20 @@ function extractWeather(
   }
 
   return fallback;
+}
+
+function extractMap(
+  content: Record<string, unknown>,
+  fallback: typeof EMPTY_PLAN_DETAIL.map,
+): { points: MapPoint[]; routes: MapRoute[] } {
+  const map = asRecord(content.map);
+  const points = readArray(map, 'points') as MapPoint[];
+  const routes = readArray(map, 'routes') as MapRoute[];
+
+  return {
+    points: points.length ? points : fallback.points,
+    routes: routes.length ? routes : fallback.routes,
+  };
 }
 
 function formatTemp(low: number, high: number): string {
