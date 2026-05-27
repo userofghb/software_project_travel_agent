@@ -29,6 +29,7 @@ import {
   listPlanVersions,
   regeneratePlan,
   restorePlanVersion,
+  downloadPlanVersionPdf,
 } from '../api/plans';
 import { getPlanWarnings } from '../api/warnings';
 import type { TripPlanCreateRequest, TripPlanResponse, TripPlanVersionResponse } from '../api/types';
@@ -129,6 +130,7 @@ export function PlanDetailPage() {
   const [editSummary, setEditSummary] = useState('详情页微调');
   const [regenBudgetRange, setRegenBudgetRange] = useState<string>('medium');
   const [regenNotes, setRegenNotes] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const planQuery = useQuery({
     queryKey: ['plan', planIdNumber],
@@ -258,6 +260,30 @@ export function PlanDetailPage() {
     },
   });
 
+  const exportPdf = async () => {
+    if (!selectedVersion) {
+      message.warning('请选择要导出的版本');
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const blob = await downloadPlanVersionPdf(planIdNumber, selectedVersion.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${plan?.title || 'travel-plan'}-v${selectedVersion.version_no}.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      message.success('PDF 导出已开始');
+    } catch (err) {
+      message.error((err as Error).message || 'PDF 导出失败');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const regenerateMutation = useMutation({
     mutationFn: (payload: TripPlanCreateRequest) => {
       if (!selectedVersion) {
@@ -366,7 +392,9 @@ export function PlanDetailPage() {
           </Col>
           <Col>
             <Space wrap>
-              <Button icon={<FileText size={16} />}>导出 PDF</Button>
+              <Button icon={<FileText size={16} />} loading={exportingPdf} onClick={exportPdf}>
+                导出 PDF
+              </Button>
               <Button icon={<History size={16} />} onClick={() => navigate('/versions?planId=' + (planId ?? ''))}>
                 版本历史
               </Button>

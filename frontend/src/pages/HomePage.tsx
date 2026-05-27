@@ -195,7 +195,7 @@ export function HomePage() {
       <Row gutter={24} style={{ marginBottom: 40 }}>
         <Col xs={24} lg={14}>
           <Card title={<Space><Wand2 size={20} color="#1890ff" /><span>一句话生成你的专属行程</span></Space>} variant="borderless" style={{ borderRadius: 16, height: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-            <TextArea rows={5} placeholder="例如：去成都玩三天，预算3000，想吃火锅，行程不要太赶。" value={demandText} onChange={(e) => setDemandText(e.target.value)} style={{ borderRadius: 12, resize: 'none', marginBottom: 16, fontSize: 16, padding: 16 }} />
+            <TextArea rows={5} placeholder="例如：从北京出发去成都玩三天，预算3000，想吃火锅，行程不要太赶。" value={demandText} onChange={(e) => setDemandText(e.target.value)} style={{ borderRadius: 12, resize: 'none', marginBottom: 16, fontSize: 16, padding: 16 }} />
             <Row justify="space-between" align="middle">
               <Col>
                 <Button type="default" icon={<Activity size={16} />} onClick={handleParse} loading={isParsing} style={{ borderRadius: 8 }}>

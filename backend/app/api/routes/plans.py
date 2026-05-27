@@ -13,6 +13,8 @@ from app.dto.plan import (
 from app.dto.task import PlanTaskCreateResponse
 from app.dto.warning import WeatherWarningResponse
 from app.services.plan_service import PlanService
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 
 router = APIRouter()
 
@@ -29,10 +31,12 @@ def create_plan_task(
 
 @router.get("", response_model=list[TripPlanResponse])
 def list_plans(
+    search: str | None = None,
+    risk_level: str | None = None,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_db),
 ) -> list[TripPlanResponse]:
-    return PlanService(session).list_plans(current_user)
+    return PlanService(session).list_plans(current_user, search=search, risk_level=risk_level)
 
 
 @router.get("/{plan_id}", response_model=TripPlanResponse)
@@ -99,6 +103,21 @@ def restore_plan_version(
     session: Session = Depends(get_db),
 ) -> TripPlanVersionResponse:
     return PlanService(session).restore_version(current_user, plan_id, version_id)
+
+
+@router.get("/{plan_id}/versions/{version_id}/export")
+def export_plan_version_pdf(
+    plan_id: int,
+    version_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> StreamingResponse:
+    pdf_bytes = PlanService(session).export_plan_version_pdf(plan_id, version_id, current_user)
+    buffer = BytesIO(pdf_bytes)
+    headers = {
+        "Content-Disposition": f"attachment; filename=plan-{plan_id}-v{version_id}.pdf"
+    }
+    return StreamingResponse(buffer, media_type="application/pdf", headers=headers)
 
 
 @router.get("/{plan_id}/warnings", response_model=WeatherWarningResponse)

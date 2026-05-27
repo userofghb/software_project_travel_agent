@@ -181,6 +181,126 @@ def test_plan_task_version_and_warnings_flow(client):
     assert regenerated_status.json()["status"] == "success"
 
 
+def test_export_plan_version_pdf(client):
+    register(client)
+    headers = login(client)
+
+    task_response = client.post(
+        "/api/plans",
+        headers=headers,
+        json={
+            "title": "广州周末游",
+            "city": "广州",
+            "start_date": "2026-07-01",
+            "end_date": "2026-07-02",
+            "budget_range": "中",
+            "transport_preference": "公交",
+            "accommodation_preference": "舒适型",
+            "notes": "想吃早茶",
+        },
+    )
+    assert task_response.status_code == 200
+
+    plans_response = client.get("/api/plans", headers=headers)
+    plan_id = plans_response.json()[0]["id"]
+    versions_response = client.get(f"/api/plans/{plan_id}/versions", headers=headers)
+    version_id = versions_response.json()[0]["id"]
+
+    export_response = client.get(f"/api/plans/{plan_id}/versions/{version_id}/export", headers=headers)
+    assert export_response.status_code == 200
+    assert export_response.headers["content-type"].startswith("application/pdf")
+    assert export_response.content[:4] == b"%PDF"
+
+
+def test_list_plans_filters(client):
+    register(client)
+    headers = login(client)
+
+    first_response = client.post(
+        "/api/plans",
+        headers=headers,
+        json={
+            "title": "北京两日游",
+            "city": "北京",
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-02",
+            "budget_range": "中",
+            "transport_preference": "地铁",
+            "accommodation_preference": "舒适型",
+            "notes": "访名胜古迹",
+        },
+    )
+    assert first_response.status_code == 200
+    first_task_id = first_response.json()["task_id"]
+    first_task_status = client.get(f"/api/tasks/{first_task_id}", headers=headers)
+    assert first_task_status.status_code == 200
+    assert first_task_status.json()["status"] == "success"
+
+    second_response = client.post(
+        "/api/plans",
+        headers=headers,
+        json={
+            "title": "上海美食游",
+            "city": "上海",
+            "start_date": "2026-09-10",
+            "end_date": "2026-09-12",
+            "budget_range": "高",
+            "transport_preference": "公交",
+            "accommodation_preference": "高端型",
+            "notes": "品尝本地小吃",
+        },
+    )
+    assert second_response.status_code == 200
+    second_task_id = second_response.json()["task_id"]
+    second_task_status = client.get(f"/api/tasks/{second_task_id}", headers=headers)
+    assert second_task_status.status_code == 200
+    assert second_task_status.json()["status"] == "success"
+
+    plans_response = client.get("/api/plans", headers=headers)
+    assert plans_response.status_code == 200
+    plans = plans_response.json()
+    assert len(plans) == 2
+
+    beijing_plan = next(plan for plan in plans if plan["city"] == "北京")
+    version_id = beijing_plan["current_version_id"]
+    edit_response = client.put(
+        f"/api/plans/{beijing_plan['id']}/versions/{version_id}",
+        headers=headers,
+        json={
+            "title": beijing_plan["title"],
+            "change_summary": "updated for risk",
+            "content": {
+                "city": "北京",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-02",
+                "days": [],
+                "attractions": [],
+                "hotel": {},
+                "meals": [],
+                "weather_info": [
+                    {"date": "2026-09-01", "condition": "暴雨", "risk_score": -6}
+                ],
+                "budget": {"range": "中", "estimated_total": 1500},
+                "warnings": [],
+                "overall_suggestions": ["建议减少户外活动"],
+            },
+        },
+    )
+    assert edit_response.status_code == 200
+
+    high_risk_response = client.get("/api/plans?risk_level=high", headers=headers)
+    assert high_risk_response.status_code == 200
+    high_risk_plans = high_risk_response.json()
+    assert len(high_risk_plans) == 1
+    assert high_risk_plans[0]["id"] == beijing_plan["id"]
+
+    search_response = client.get("/api/plans?search=上海", headers=headers)
+    assert search_response.status_code == 200
+    search_plans = search_response.json()
+    assert len(search_plans) == 1
+    assert search_plans[0]["city"] == "上海"
+
+
 def test_plan_permissions(client):
     register(client, "alice", "alice@example.com")
     register(client, "bob", "bob@example.com")

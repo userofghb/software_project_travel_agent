@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Typography, Card, Row, Col, Space, Tag, Input, Select, Button, Badge, Statistic } from "antd";
+import { Typography, Card, Row, Col, Space, Tag, Input, Select, Button, Badge, Statistic, Drawer, DatePicker, Form } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { History, Wallet, Search, Filter, Activity, SunSnow, GitBranch } from "lucide-react";
@@ -11,16 +11,45 @@ const { Title, Text } = Typography;
 export function PlanHistoryPage() {
   const navigate = useNavigate();
   const [searchText, setSearchText] = useState("");
+  const [riskLevel, setRiskLevel] = useState("all");
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [selectedYear, setSelectedYear] = useState<number | null>(null);
+  const [durationRange, setDurationRange] = useState<string>("all");
+  
   const { data: plans = [] } = useQuery({
-    queryKey: ["plans"],
-    queryFn: listPlans,
+    queryKey: ["plans", searchText, riskLevel],
+    queryFn: () => listPlans({ search: searchText, risk_level: riskLevel }),
   });
+  
+  // 计算旅行天数
+  const calculateDuration = (startDate: string, endDate: string): number => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  };
+
+  // 前端过滤：按年份和天数范围
+  const filteredPlans = plans.filter((plan) => {
+    const planYear = new Date(plan.start_date).getFullYear();
+    if (selectedYear && planYear !== selectedYear) return false;
+
+    if (durationRange !== "all") {
+      const duration = calculateDuration(plan.start_date, plan.end_date);
+      if (durationRange === "1-3" && !(duration >= 1 && duration <= 3)) return false;
+      if (durationRange === "4-7" && !(duration >= 4 && duration <= 7)) return false;
+      if (durationRange === "8-14" && !(duration >= 8 && duration <= 14)) return false;
+      if (durationRange === "15+" && duration < 15) return false;
+    }
+
+    return true;
+  });
+  
   const { data: summaryMap = {} } = useQuery({
-    queryKey: ["history-plan-summaries", plans.map((plan) => plan.id).join(",")],
-    enabled: plans.length > 0,
+    queryKey: ["history-plan-summaries", filteredPlans.map((plan) => plan.id).join(",")],
+    enabled: filteredPlans.length > 0,
     queryFn: async () => {
       const entries = await Promise.all(
-        plans.map(async (plan) => {
+        filteredPlans.map(async (plan) => {
           const summary = await getPlanSummary(plan.id);
           return [plan.id, summary] as const;
         }),
@@ -30,10 +59,13 @@ export function PlanHistoryPage() {
   });
 
   const stats = [
-    { title: "总生成方案", value: plans.length },
-    { title: "已规划城市", value: new Set(plans.map((p) => p.city)).size },
-    { title: "高风险预警", value: plans.filter((p) => summaryMap[p.id]?.risk_level === "high").length },
+    { title: "总生成方案", value: filteredPlans.length },
+    { title: "已规划城市", value: new Set(filteredPlans.map((p) => p.city)).size },
+    { title: "高风险预警", value: filteredPlans.filter((p) => summaryMap[p.id]?.risk_level === "high").length },
   ];
+  
+  // 获取可用的年份列表
+  const availableYears = Array.from(new Set(plans.map((p) => new Date(p.start_date).getFullYear()))).sort().reverse();
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
@@ -67,19 +99,12 @@ export function PlanHistoryPage() {
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
             />
-            <Select defaultValue="all" style={{ width: 120 }}>
-              <Select.Option value="all">所有风险等级</Select.Option>
-              <Select.Option value="low">低风险</Select.Option>
-              <Select.Option value="high">高风险</Select.Option>
-            </Select>
-            <Button icon={<Filter size={16} />}>更多筛选</Button>
+            <Button icon={<Filter size={16} />} onClick={() => setFilterDrawerOpen(true)}>筛选</Button>
           </Space>
         </div>
 
         <Row gutter={[24, 24]}>
-          {plans
-            .filter((p) => p.title.includes(searchText) || p.city.includes(searchText))
-            .map((plan) => {
+          {filteredPlans.map((plan) => {
               const summary = summaryMap[plan.id];
               const risk = summary?.risk_level ?? "low";
               return (
@@ -140,6 +165,60 @@ export function PlanHistoryPage() {
             })}
         </Row>
       </Card>
+
+      <Drawer
+        title="高级筛选"
+        placement="right"
+        onClose={() => setFilterDrawerOpen(false)}
+        open={filterDrawerOpen}
+        width={400}
+      >
+        <Form layout="vertical">
+          <Form.Item label="旅行年份">
+            <Select 
+              placeholder="选择年份" 
+              value={selectedYear} 
+              onChange={(value) => setSelectedYear(value)}
+              allowClear
+            >
+              {availableYears.map((year) => (
+                <Select.Option key={year} value={year}>
+                  {year} 年
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="旅行天数">
+            <Select value={durationRange} onChange={(value) => setDurationRange(value)}>
+              <Select.Option value="all">全部天数</Select.Option>
+              <Select.Option value="1-3">1-3 天（周末游）</Select.Option>
+              <Select.Option value="4-7">4-7 天（一周游）</Select.Option>
+              <Select.Option value="8-14">8-14 天（两周游）</Select.Option>
+              <Select.Option value="15+">15+ 天（长期游）</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="风险等级">
+            <Select value={riskLevel} onChange={(value) => setRiskLevel(value)}>
+              <Select.Option value="all">全部风险等级</Select.Option>
+              <Select.Option value="low">低风险</Select.Option>
+              <Select.Option value="medium">中风险</Select.Option>
+              <Select.Option value="high">高风险</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item>
+            <Button 
+              type="primary" 
+              onClick={() => setFilterDrawerOpen(false)}
+              style={{ width: "100%" }}
+            >
+              确定
+            </Button>
+          </Form.Item>
+        </Form>
+      </Drawer>
     </div>
   );
 }

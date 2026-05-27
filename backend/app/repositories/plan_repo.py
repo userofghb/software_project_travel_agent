@@ -1,3 +1,4 @@
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from app.db.models import TripPlan
@@ -22,6 +23,14 @@ class PlanRepository:
     def get_by_id(self, plan_id: int) -> TripPlan | None:
         return self.session.get(TripPlan, plan_id)
 
-    def list_by_user_id(self, user_id: int) -> list[TripPlan]:
-        statement = select(TripPlan).where(TripPlan.owner_user_id == user_id).order_by(TripPlan.updated_at.desc())
+    def list_by_user_id(self, user_id: int, search: str | None = None) -> list[TripPlan]:
+        statement = select(TripPlan).where(TripPlan.owner_user_id == user_id)
+        if search:
+            statement = statement.where(
+                or_(
+                    TripPlan.title.contains(search),
+                    TripPlan.city.contains(search),
+                )
+            )
+        statement = statement.order_by(TripPlan.updated_at.desc())
         return list(self.session.exec(statement).all())

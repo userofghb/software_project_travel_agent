@@ -24,6 +24,7 @@ from app.repositories.profile_repo import ProfileRepository
 from app.repositories.task_repo import TaskRepository
 from app.repositories.version_repo import VersionRepository
 from app.services.weather_service import WeatherService
+from app.services.pdf_service import build_plan_pdf_bytes
 
 
 class PlanService:
@@ -77,8 +78,19 @@ class PlanService:
         background_tasks.add_task(process_plan_task, task.id)
         return PlanTaskCreateResponse(task_id=task.id, status=task.status)
 
-    def list_plans(self, user: User) -> list[TripPlanResponse]:
-        return [self._build_plan_response(plan) for plan in self.plans.list_by_user_id(user.id)]
+    def list_plans(self, user: User, search: str | None = None, risk_level: str | None = None) -> list[TripPlanResponse]:
+        plans = self.plans.list_by_user_id(user.id, search=search)
+        if risk_level not in {"high", "medium", "low", None, "all"}:
+            risk_level = None
+
+        if risk_level in {"high", "medium", "low"}:
+            filtered: list[TripPlanResponse] = []
+            for plan in plans:
+                summary = self.get_plan_summary(plan.id, user)
+                if summary.risk_level == risk_level:
+                    filtered.append(self._build_plan_response(plan))
+            return filtered
+        return [self._build_plan_response(plan) for plan in plans]
 
     def get_plan(self, plan_id: int, user: User) -> TripPlanResponse:
         return self._build_plan_response(self._get_owned_plan(plan_id, user))
@@ -188,6 +200,13 @@ class PlanService:
             warning_count=warning_count,
             updated_at=plan.updated_at,
         )
+
+    def export_plan_version_pdf(self, plan_id: int, version_id: int, user: User) -> bytes:
+        plan = self._get_owned_plan(plan_id, user)
+        version = self._get_owned_version(version_id, user)
+        if version.plan_id != plan.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found for plan")
+        return build_plan_pdf_bytes(plan=TripPlanResponse.model_validate(plan), version=TripPlanVersionResponse.model_validate(version))
 
     def _warnings_for_version(self, plan_id: int, version: TripPlanVersion) -> WeatherWarningResponse:
         weather_info = version.content_json.get("weather_info", [])
