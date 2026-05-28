@@ -100,6 +100,7 @@ type UiBudgetItem = {
 };
 
 type UiPlanDetail = {
+  origin: string;
   city: string;
   days: number;
   date: string;
@@ -375,7 +376,7 @@ export function PlanDetailPage() {
                 </Text>
               </Space>
               <Title level={2} style={{ margin: '8px 0' }}>
-                {uiPlan.city} {uiPlan.days} 日游
+                {uiPlan.origin ? `${uiPlan.origin} → ` : ''}{uiPlan.city} {uiPlan.days} 日游
               </Title>
               <Space size="large" style={{ marginTop: 8 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -808,6 +809,7 @@ function buildUiPlan(params: {
   const { fallback, plan, summaryRiskLevel, summaryPace, summaryBudget, warnings = [], selectedVersion } = params;
   const content = getVersionContent(selectedVersion);
 
+  const origin = plan?.origin || readString(content, 'origin') || '';
   const city = plan?.city || readString(content, 'city') || fallback.city;
 
   const startDate = plan?.start_date || readString(content, 'start_date');
@@ -826,6 +828,7 @@ function buildUiPlan(params: {
   const map = extractMap(content, fallback.map);
 
   return {
+    origin,
     city,
     days,
     date: startDate ? dayjs(startDate).format('YYYY-MM-DD') : fallback.date,
@@ -1016,6 +1019,7 @@ function buildRegeneratePayload(
   const today = dayjs().format('YYYY-MM-DD');
   return {
     title: plan?.title || '行程再生成',
+    origin: plan?.origin || undefined,
     city: plan?.city || '目的地',
     start_date: plan?.start_date || today,
     end_date: plan?.end_date || today,

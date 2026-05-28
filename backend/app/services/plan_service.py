@@ -159,6 +159,9 @@ class PlanService:
         restored_title = saved.content_json.get("title")
         if isinstance(restored_title, str) and restored_title.strip():
             plan.title = restored_title.strip()
+        restored_origin = saved.content_json.get("origin")
+        if isinstance(restored_origin, str):
+            plan.origin = restored_origin.strip() or None
         plan.updated_at = utc_now()
         self.plans.save(plan)
         return self._to_version_response(saved)
@@ -188,6 +191,7 @@ class PlanService:
         return PlanSummaryResponse(
             plan_id=plan.id,
             title=plan.title,
+            origin=plan.origin,
             city=plan.city,
             start_date=plan.start_date,
             end_date=plan.end_date,
@@ -218,6 +222,7 @@ class PlanService:
             id=plan.id,
             owner_user_id=plan.owner_user_id,
             title=plan.title,
+            origin=plan.origin,
             city=plan.city,
             start_date=plan.start_date,
             end_date=plan.end_date,
@@ -343,10 +348,15 @@ def process_plan_task(task_id: int) -> None:
             mode = payload.get("mode", "create")
             start_date = date.fromisoformat(payload["start_date"]) if isinstance(payload["start_date"], str) else payload["start_date"]
             end_date = date.fromisoformat(payload["end_date"]) if isinstance(payload["end_date"], str) else payload["end_date"]
+            origin = payload.get("origin")
+            if origin:
+                state.final_plan["origin"] = origin
+
             if mode == "create":
                 plan = TripPlan(
                     owner_user_id=task.user_id,
                     title=payload["title"],
+                    origin=origin,
                     city=payload["city"],
                     start_date=start_date,
                     end_date=end_date,
@@ -365,6 +375,7 @@ def process_plan_task(task_id: int) -> None:
                 version_no = (latest.version_no if latest else 0) + 1
                 source_type = "regenerated"
                 plan.title = payload["title"]
+                plan.origin = origin
                 plan.city = payload["city"]
                 plan.start_date = start_date
                 plan.end_date = end_date

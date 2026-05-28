@@ -16,6 +16,15 @@ export function createPlan(payload: TripPlanCreateRequest) {
   });
 }
 
+export function parsePlan(text: string) {
+  return apiRequest<TripPlanCreateRequest>("/api/plans/parse", {
+    method: "POST",
+    body: { text },
+    // parsing doesn't require auth in current implementation
+    auth: false,
+  });
+}
+
 export function listPlans(params?: { search?: string; risk_level?: string }) {
   const query = new URLSearchParams();
   if (params?.search) {

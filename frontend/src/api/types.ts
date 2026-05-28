@@ -17,6 +17,7 @@ export type WeatherWarningResponse = components["schemas"]["WeatherWarningRespon
 export type PlanSummaryResponse = {
   plan_id: number;
   title: string;
+  origin: string | null;
   city: string;
   start_date: string;
   end_date: string;

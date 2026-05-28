@@ -84,6 +84,7 @@ def build_plan_pdf_bytes(plan: TripPlanResponse, version: TripPlanVersionRespons
     story.append(Spacer(1, 12))
 
     detail_data = [
+        [Paragraph("<b>出发地</b>", normal_style), Paragraph(_safe_text(plan.origin or "未标注"), normal_style)],
         [Paragraph("<b>目的地</b>", normal_style), Paragraph(_safe_text(plan.city), normal_style)],
         [Paragraph("<b>出发日期</b>", normal_style), Paragraph(_safe_text(plan.start_date), normal_style)],
         [Paragraph("<b>结束日期</b>", normal_style), Paragraph(_safe_text(plan.end_date), normal_style)],

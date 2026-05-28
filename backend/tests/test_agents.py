@@ -102,6 +102,27 @@ def test_planning_graph_keeps_plan_usable_when_attraction_provider_fails(monkeyp
     assert any("attraction provider failed" in error for error in state.errors)
 
 
+def test_planning_graph_preserves_origin_for_ai_plan_generation():
+    state = run_planning_graph(
+        make_state(
+            request={
+                "title": "北京出发上海两日游",
+                "origin": "北京",
+                "city": "上海",
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-02",
+                "budget_range": "medium",
+                "transport_preference": "public_transit",
+                "accommodation_preference": "comfort",
+            }
+        )
+    )
+
+    assert state.final_plan["origin"] == "北京"
+    assert state.final_plan["city"] == "上海"
+    assert any("北京" in suggestion and "上海" in suggestion for suggestion in state.final_plan["overall_suggestions"])
+
+
 def test_route_agent_uses_activity_locations_when_plan_attractions_are_partial():
     state = make_state(
         hotels={

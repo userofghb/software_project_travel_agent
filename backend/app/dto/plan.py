@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class TripPlanCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=100)
+    origin: str | None = Field(default=None, max_length=100)
     city: str = Field(min_length=1, max_length=100)
     start_date: date
     end_date: date
@@ -13,6 +14,7 @@ class TripPlanCreateRequest(BaseModel):
     transport_preference: str = "public_transit"
     accommodation_preference: str = "comfort"
     notes: str = ""
+    duration: str | None = None  # e.g., "3天"
 
     @model_validator(mode="after")
     def validate_dates(self) -> "TripPlanCreateRequest":
@@ -45,6 +47,7 @@ class TripPlanResponse(BaseModel):
     id: int
     owner_user_id: int
     title: str
+    origin: str | None = None
     city: str
     start_date: date
     end_date: date
@@ -60,6 +63,7 @@ class TripPlanResponse(BaseModel):
 class PlanSummaryResponse(BaseModel):
     plan_id: int
     title: str
+    origin: str | None = None
     city: str
     start_date: date
     end_date: date

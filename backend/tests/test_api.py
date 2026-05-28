@@ -212,6 +212,38 @@ def test_export_plan_version_pdf(client):
     assert export_response.content[:4] == b"%PDF"
 
 
+def test_plan_creation_preserves_origin(client):
+    register(client)
+    headers = login(client)
+
+    task_response = client.post(
+        "/api/plans",
+        headers=headers,
+        json={
+            "title": "北京出发上海两日游",
+            "origin": "北京",
+            "city": "上海",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-02",
+            "budget_range": "中",
+            "transport_preference": "公交",
+            "accommodation_preference": "舒适型",
+            "notes": "从北京出发去上海旅游",
+        },
+    )
+    assert task_response.status_code == 200
+
+    plans_response = client.get("/api/plans", headers=headers)
+    assert plans_response.status_code == 200
+    plan = plans_response.json()[0]
+    assert plan["origin"] == "北京"
+    assert plan["city"] == "上海"
+
+    versions_response = client.get(f"/api/plans/{plan['id']}/versions", headers=headers)
+    version = versions_response.json()[0]
+    assert version["content_json"]["origin"] == "北京"
+
+
 def test_list_plans_filters(client):
     register(client)
     headers = login(client)

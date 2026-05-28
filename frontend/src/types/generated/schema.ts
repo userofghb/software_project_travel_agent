@@ -319,6 +319,8 @@ export interface components {
         TripPlanCreateRequest: {
             /** Title */
             title: string;
+            /** Origin */
+            origin?: string | null;
             /** City */
             city: string;
             /**
@@ -348,6 +350,8 @@ export interface components {
              * @default
              */
             notes: string;
+            /** Duration */
+            duration?: string | null;
         };
         /** TripPlanEditRequest */
         TripPlanEditRequest: {
@@ -371,6 +375,8 @@ export interface components {
             owner_user_id: number;
             /** Title */
             title: string;
+            /** Origin */
+            origin?: string | null;
             /** City */
             city: string;
             /**

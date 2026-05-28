@@ -41,6 +41,7 @@ class TripPlan(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     owner_user_id: int = Field(foreign_key="users.id", index=True)
     title: str
+    origin: str | None = Field(default=None, index=True)
     city: str = Field(index=True)
     start_date: date
     end_date: date

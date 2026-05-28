@@ -21,8 +21,7 @@ import {
   CheckCircle2,
   ArrowRight,
 } from 'lucide-react';
-import { createPlan, getPlanSummary, listPlans } from '../api/plans';
-import type { TripPlanCreateRequest } from '../api/types';
+import { createPlan, getPlanSummary, listPlans, parsePlan } from '../api/plans';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -34,15 +33,16 @@ export function HomePage() {
   const [isParsing, setIsParsing] = useState(false);
 
   const [parsedData, setParsedData] = useState({
+    origin: '',
     destination: '',
+    departureTime: '',
     duration: '',
     budget: '',
-    style: '',
   });
 
   const plansQuery = useQuery({
     queryKey: ['plans', 'home'],
-    queryFn: listPlans,
+    queryFn: () => listPlans(),
   });
   const createPlanMutation = useMutation({
     mutationFn: createPlan,
@@ -67,40 +67,50 @@ export function HomePage() {
   }, [plansQuery.data]);
   const recentPlans = useMemo(() => plans.slice(0, 3), [plans]);
 
-  const handleParse = () => {
+  const handleParse = async () => {
     if (!demandText.trim()) {
       message.warning('请输入您的旅行想法');
       return;
     }
     setIsParsing(true);
-    setTimeout(() => {
-      const payload = buildCreatePayload(demandText);
+    try {
+      const payload = await parsePlan(demandText);
       setParsedData({
+        origin: payload.origin || '',
         destination: payload.city,
-        duration: formatDuration(payload.start_date, payload.end_date),
+        departureTime: formatDepartureTime(payload.start_date),
+        duration: payload.duration || formatDuration(payload.start_date, payload.end_date),
         budget: mapBudgetLabel(payload.budget_range),
-        style: payload.notes || '结合用户画像生成',
       });
       setParsed(true);
-      setIsParsing(false);
       message.success('需求解析成功');
-    }, 1000);
+    } catch (err) {
+      message.error('需求解析失败');
+    } finally {
+      setIsParsing(false);
+    }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!demandText.trim()) {
       message.warning('请输入您的旅行想法');
       return;
     }
-    const payload = buildCreatePayload(demandText);
-    setParsedData({
-      destination: payload.city,
-      duration: formatDuration(payload.start_date, payload.end_date),
-      budget: mapBudgetLabel(payload.budget_range),
-      style: payload.notes || '结合用户画像生成',
-    });
-    setParsed(true);
-    createPlanMutation.mutate(payload);
+    try {
+      // 先调用后端解析 API
+      const payload = await parsePlan(demandText);
+      setParsedData({
+        origin: payload.origin || '',
+        destination: payload.city,
+        departureTime: formatDepartureTime(payload.start_date),
+        duration: payload.duration || formatDuration(payload.start_date, payload.end_date),
+        budget: mapBudgetLabel(payload.budget_range),
+      });
+      setParsed(true);
+      createPlanMutation.mutate(payload);
+    } catch (err) {
+      message.error('解析失败，请检查输入');
+    }
   };
 
   const applyTemplate = (template: string) => {
@@ -237,10 +247,11 @@ export function HomePage() {
                   </div>
 
                   <Row gutter={[16, 16]}>
+                    <Col span={12}><InfoItem icon={<MapPin size={14} />} label="出发地" value={parsedData.origin || '未识别'} /></Col>
                     <Col span={12}><InfoItem icon={<MapPin size={14} />} label="目的地" value={parsedData.destination} /></Col>
+                    <Col span={12}><InfoItem icon={<Calendar size={14} />} label="出发时间" value={parsedData.departureTime || '待确认'} /></Col>
                     <Col span={12}><InfoItem icon={<Calendar size={14} />} label="时长" value={parsedData.duration} /></Col>
                     <Col span={12}><InfoItem icon={<Wallet size={14} />} label="预算" value={parsedData.budget} /></Col>
-                    <Col span={12}><InfoItem icon={<Compass size={14} />} label="风格" value={parsedData.style} /></Col>
                   </Row>
                 </Space>
               </motion.div>
@@ -365,80 +376,18 @@ function mapPace(pace: string): string {
   return pace;
 }
 
-function buildCreatePayload(text: string): TripPlanCreateRequest {
-  const city = extractCity(text);
-  const days = extractDays(text);
-  const startDate = nextDate(7);
-  const endDate = addDays(startDate, days - 1);
-  const budgetRange = extractBudgetRange(text);
-
-  return {
-    title: `${city}${days}日旅行方案`,
-    city,
-    start_date: toDateString(startDate),
-    end_date: toDateString(endDate),
-    budget_range: budgetRange,
-    transport_preference: text.includes('自驾') ? 'driving' : text.includes('打车') ? 'taxi' : 'public_transit',
-    accommodation_preference: budgetRange === 'high' ? 'luxury' : budgetRange === 'low' ? 'budget' : 'comfort',
-    notes: text.trim(),
-  };
-}
-
-function extractCity(text: string): string {
-  const knownCities = ['北京', '上海', '广州', '深圳', '成都', '重庆', '杭州', '南京', '苏州', '西安', '武汉', '长沙', '厦门', '青岛', '大理', '桂林', '三亚'];
-  const matched = knownCities.find((city) => text.includes(city));
-  if (matched) return matched;
-
-  const match = text.match(/去([\u4e00-\u9fa5]{2,8})(?:玩|旅行|旅游|游|出差|，|,|\s|$)/);
-  return match?.[1] ?? '成都';
-}
-
-function extractDays(text: string): number {
-  const digitMatch = text.match(/(\d+)\s*[日天]/);
-  if (digitMatch) return clampDays(Number(digitMatch[1]));
-
-  const cnMap: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7 };
-  const cnMatch = text.match(/([一二两三四五六七])\s*[日天]/);
-  return clampDays(cnMatch ? cnMap[cnMatch[1]] : 3);
-}
-
-function extractBudgetRange(text: string): string {
-  const match = text.match(/预算\s*(\d+)/);
-  const amount = match ? Number(match[1]) : 0;
-  if (amount > 0) {
-    if (amount <= 2000) return 'low';
-    if (amount >= 6000) return 'high';
-    return 'medium';
-  }
-  if (text.includes('高端') || text.includes('品质')) return 'high';
-  if (text.includes('省钱') || text.includes('经济')) return 'low';
-  return 'medium';
-}
-
-function clampDays(days: number): number {
-  if (!Number.isFinite(days)) return 3;
-  return Math.min(Math.max(Math.round(days), 1), 10);
-}
-
-function nextDate(offsetDays: number): Date {
-  return addDays(new Date(), offsetDays);
-}
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
 
 function formatDuration(startDate: string, endDate: string): string {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
   return `${days}天`;
+}
+
+function formatDepartureTime(dateString: string): string {
+  const [year, month, day] = dateString.split('-');
+  if (!year || !month || !day) return '待确认';
+  return `${Number(month)}月${Number(day)}日`;
 }
 
 function mapBudgetLabel(range: string): string {

@@ -183,8 +183,22 @@ class RuleBasedPlannerProvider:
         end = _parse_date(request["end_date"])
         days = _build_rule_based_days(request, attractions, weather_info, start, end)
         budget = _build_budget(days, request, hotel)
+        overall_suggestions = [
+            "每天按上午、午餐、下午、晚间分段安排，避免只堆一个景点。",
+            "同一时段可串联相邻景点，但保留用餐、转场和休息时间。",
+            "雨天或高温时优先把室内项目放到下午，并保留可替换活动。",
+            "预算按住宿、餐饮、交通、门票和弹性预留拆分，便于前端展示。",
+        ]
+        origin = request.get("origin")
+        if origin:
+            overall_suggestions.insert(
+                0,
+                f"出发地为 {origin}，目的地为 {request['city']}，行程应从出发地出发并围绕目的地安排。",
+            )
+
         return {
             "title": request["title"],
+            "origin": origin,
             "city": request["city"],
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
@@ -195,12 +209,7 @@ class RuleBasedPlannerProvider:
             "weather_info": weather_info,
             "budget": budget,
             "warnings": [],
-            "overall_suggestions": [
-                "每天按上午、午餐、下午、晚间分段安排，避免只堆一个景点。",
-                "同一时段可串联相邻景点，但保留用餐、转场和休息时间。",
-                "雨天或高温时优先把室内项目放到下午，并保留可替换活动。",
-                "预算按住宿、餐饮、交通、门票和弹性预留拆分，便于前端展示。",
-            ],
+            "overall_suggestions": overall_suggestions,
             "map": {
                 "points": build_map_points(hotel, attractions, days),
                 "routes": [],
@@ -725,6 +734,7 @@ class OpenAIPlannerProvider:
                 "weather": "雨天、高温或高风险天气下，下午优先安排室内、短距离或可替换活动。",
                 "budget": "预算必须拆分住宿、餐饮、交通、门票和弹性预留，并给出每日 subtotal。",
                 "activity_fields": "每个 activity 必须包含 time、period、type、title、reason、duration、budget、tags；景点类活动要带 poi_id、location、transport。",
+                "origin_handling": "如果 request 中包含 origin，则 origin 代表出发地，city 代表目的地；计划应保留 origin 字段并在建议中区分出发地与目的地。",
             },
             "required_keys": [
                 "title",
@@ -1087,6 +1097,7 @@ def _ensure_plan_defaults(
     fallback = RuleBasedPlannerProvider().generate_plan(request, {}, attractions, weather_info, hotel)
     for key, value in fallback.items():
         plan.setdefault(key, value)
+    plan["origin"] = plan.get("origin") or request.get("origin")
     plan["attractions"] = plan.get("attractions") or attractions
     plan["hotel"] = plan.get("hotel") or hotel
     plan["weather_info"] = plan.get("weather_info") or weather_info

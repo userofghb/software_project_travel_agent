@@ -29,6 +29,7 @@ class PlanRepository:
             statement = statement.where(
                 or_(
                     TripPlan.title.contains(search),
+                    TripPlan.origin.contains(search),
                     TripPlan.city.contains(search),
                 )
             )
