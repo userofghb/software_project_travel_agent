@@ -162,6 +162,9 @@ def main() -> None:
         print(f"[OK] executed: {seed_file.name}")
 
         with db_conn.cursor() as cursor:
+            cursor.execute("ALTER TABLE `trip_plan_versions` ALTER INDEX `uk_plan_version` VISIBLE")
+            cursor.execute("ALTER TABLE `trip_plan_versions` ALTER INDEX `idx_plan_id` VISIBLE")
+            cursor.execute("ALTER TABLE `trip_plan_versions` ALTER INDEX `idx_owner_user_id` VISIBLE")
             cursor.execute("SET FOREIGN_KEY_CHECKS=1")
         print(f"[DONE] MySQL initialized for database: {db_name}")
     finally:
