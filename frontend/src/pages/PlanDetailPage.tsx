@@ -43,6 +43,8 @@ import {
   Coffee,
   Camera,
   Bus,
+  Hotel,
+  Plane,
   FileText,
   Wand2,
   History,
@@ -71,8 +73,9 @@ const EMPTY_PLAN_DETAIL = {
 };
 
 type UiItineraryItem = {
+  id: string;
   time: string;
-  type: 'attraction' | 'food' | 'transport';
+  type: 'attraction' | 'food' | 'transport' | 'hotel' | 'intercity' | 'rest';
   title: string;
   reason: string;
   duration: string;
@@ -126,12 +129,14 @@ export function PlanDetailPage() {
   const validPlanId = Number.isFinite(planIdNumber) && planIdNumber > 0;
 
   const [activeDay, setActiveDay] = useState('1');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [editSummary, setEditSummary] = useState('详情页微调');
   const [regenBudgetRange, setRegenBudgetRange] = useState<string>('medium');
   const [regenNotes, setRegenNotes] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const itemRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const planQuery = useQuery({
     queryKey: ['plan', planIdNumber],
@@ -220,6 +225,15 @@ export function PlanDetailPage() {
   const activeDayIndex = Math.max(0, Number(activeDay) - 1);
   const activeWeather = uiPlan.weather[activeDayIndex];
   const activeItinerary = uiPlan.itinerary[activeDayIndex];
+  const activeTravelItems = activeItinerary?.items.filter((item) => item.type === 'intercity') ?? [];
+  const activeCityItems = activeItinerary?.items.filter((item) => item.type !== 'intercity') ?? [];
+
+  const handlePointSelect = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    window.setTimeout(() => {
+      itemRefs.current[nodeId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+  };
 
   const invalidatePlanQueries = async () => {
     await Promise.all([
@@ -486,81 +500,34 @@ export function PlanDetailPage() {
               {!activeItinerary ? (
                 <Empty description="暂无行程数据" />
               ) : (
-                <Timeline
-                  items={activeItinerary.items.map((item) => ({
-                    color: item.type === 'food' ? 'orange' : item.type === 'transport' ? 'green' : 'blue',
-                    dot: (
-                      <div
-                        style={{
-                          background: '#fff',
-                          padding: 4,
-                          borderRadius: '50%',
-                          border: '2px solid #f0f0f0',
-                        }}
-                      >
-                        {getIconForType(item.type)}
-                      </div>
-                    ),
-                    children: (
-                      <Card
-                        hoverable
-                        size="small"
-                        style={{ marginBottom: 16, borderRadius: 12, border: '1px solid #f0f0f0' }}
-                      >
-                        <Row justify="space-between">
-                          <Col>
-                            <Space align="center">
-                              <Text strong style={{ fontSize: 16 }}>
-                                {item.time}
-                              </Text>
-                              <Divider type="vertical" />
-                              <Title level={5} style={{ margin: 0 }}>
-                                {item.title}
-                              </Title>
-                            </Space>
-                            <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 8 }}>
-                              {item.reason}
-                            </Paragraph>
-                            <Space wrap>
-                              {item.tags.map((tag) => (
-                                <Tag key={tag} bordered={false} style={{ background: '#f5f5f5' }}>
-                                  {tag}
-                                </Tag>
-                              ))}
-                            </Space>
-                          </Col>
-                          <Col style={{ textAlign: 'right' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#8c8c8c' }}>
-                              <span
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  justifyContent: 'flex-end',
-                                }}
-                              >
-                                <Clock size={14} /> {item.duration}
-                              </span>
-                              {item.budget > 0 ? (
-                                <span
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    justifyContent: 'flex-end',
-                                    color: '#52c41a',
-                                  }}
-                                >
-                                  <Wallet size={14} /> ¥{item.budget}
-                                </span>
-                              ) : null}
-                            </div>
-                          </Col>
-                        </Row>
-                      </Card>
-                    ),
-                  }))}
-                />
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  {activeTravelItems.length > 0 ? (
+                    <div>
+                      <Text strong style={{ display: 'block', marginBottom: 8 }}>抵达/返程</Text>
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        {activeTravelItems.map((item) => renderItineraryCard(item, itemRefs, selectedNodeId, setSelectedNodeId))}
+                      </Space>
+                    </div>
+                  ) : null}
+                  <Timeline
+                    items={activeCityItems.map((item) => ({
+                      color: timelineColor(item.type),
+                      dot: (
+                        <div
+                          style={{
+                            background: '#fff',
+                            padding: 4,
+                            borderRadius: '50%',
+                            border: selectedNodeId === item.id ? '2px solid #faad14' : '2px solid #f0f0f0',
+                          }}
+                        >
+                          {getIconForType(item.type)}
+                        </div>
+                      ),
+                      children: renderItineraryCard(item, itemRefs, selectedNodeId, setSelectedNodeId),
+                    }))}
+                  />
+                </Space>
               )}
             </div>
           </Card>
@@ -575,8 +542,9 @@ export function PlanDetailPage() {
             >
               <PlanMap
                 points={uiPlan.map.points}
-                routes={uiPlan.map.routes}
                 activeDate={activeItinerary?.date ?? String(activeItinerary?.day ?? '')}
+                selectedNodeId={selectedNodeId}
+                onPointSelect={handlePointSelect}
                 height={300}
               />
             </Card>
@@ -716,6 +684,86 @@ export function PlanDetailPage() {
   );
 }
 
+function renderItineraryCard(
+  item: UiItineraryItem,
+  itemRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>,
+  selectedNodeId: string | null,
+  setSelectedNodeId: (id: string | null) => void,
+) {
+  const isTransport = item.type === 'transport';
+  const selected = selectedNodeId === item.id;
+  return (
+    <div
+      key={item.id}
+      ref={(node) => {
+        itemRefs.current[item.id] = node;
+      }}
+      onClick={() => setSelectedNodeId(item.id)}
+    >
+      <Card
+        hoverable
+        size="small"
+        style={{
+          marginBottom: 16,
+          borderRadius: 8,
+          border: selected ? '1px solid #faad14' : '1px solid #f0f0f0',
+          background: isTransport ? '#fbfffb' : '#fff',
+        }}
+        bodyStyle={{ padding: isTransport ? 12 : 16 }}
+      >
+        <Row justify="space-between" gutter={12}>
+          <Col flex="auto">
+            <Space align="center" wrap>
+              <Text strong style={{ fontSize: isTransport ? 14 : 16 }}>
+                {item.time}
+              </Text>
+              <Tag color={activityTagColor(item.type)} bordered={false} style={{ marginInlineEnd: 0 }}>
+                {activityTypeLabel(item.type)}
+              </Tag>
+              <Title level={isTransport ? 5 : 4} style={{ margin: 0, fontSize: isTransport ? 14 : 16 }}>
+                {item.title}
+              </Title>
+            </Space>
+            {!isTransport ? (
+              <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 8 }}>
+                {item.reason}
+              </Paragraph>
+            ) : null}
+            <Space wrap>
+              {item.tags.map((tag) => (
+                <Tag key={tag} bordered={false} style={{ background: '#f5f5f5' }}>
+                  {tag}
+                </Tag>
+              ))}
+            </Space>
+          </Col>
+          <Col style={{ textAlign: 'right' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, color: '#8c8c8c' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                <Clock size={14} /> {item.duration}
+              </span>
+              {item.budget > 0 || item.type === 'transport' ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', color: '#52c41a' }}>
+                  <Wallet size={14} /> ¥{item.budget}
+                </span>
+              ) : null}
+            </div>
+          </Col>
+        </Row>
+      </Card>
+    </div>
+  );
+}
+
+function timelineColor(type: string): string {
+  if (type === 'food') return 'orange';
+  if (type === 'transport') return 'green';
+  if (type === 'hotel') return 'purple';
+  if (type === 'intercity') return 'cyan';
+  if (type === 'rest') return 'gray';
+  return 'blue';
+}
+
 function getIconForType(type: string) {
   switch (type) {
     case 'attraction':
@@ -724,9 +772,31 @@ function getIconForType(type: string) {
       return <Coffee size={16} color="#faad14" />;
     case 'transport':
       return <Bus size={16} color="#52c41a" />;
+    case 'hotel':
+      return <Hotel size={16} color="#722ed1" />;
+    case 'intercity':
+      return <Plane size={16} color="#13c2c2" />;
     default:
       return <MapPin size={16} color="#13c2c2" />;
   }
+}
+
+function activityTypeLabel(type: string): string {
+  if (type === 'attraction') return '景点';
+  if (type === 'food') return '餐饮';
+  if (type === 'transport') return '交通';
+  if (type === 'hotel') return '住宿';
+  if (type === 'intercity') return '往返交通';
+  return '活动';
+}
+
+function activityTagColor(type: string): string {
+  if (type === 'attraction') return 'blue';
+  if (type === 'food') return 'orange';
+  if (type === 'transport') return 'green';
+  if (type === 'hotel') return 'purple';
+  if (type === 'intercity') return 'cyan';
+  return 'cyan';
 }
 
 function riskColor(risk: string): string {
@@ -767,10 +837,13 @@ function mapSourceType(value: string): string {
   return value || '未知来源';
 }
 
-function mapActivityType(type: unknown): 'attraction' | 'food' | 'transport' {
+function mapActivityType(type: unknown): 'attraction' | 'food' | 'transport' | 'hotel' | 'intercity' | 'rest' {
   const raw = String(type ?? '').toLowerCase();
-  if (raw.includes('food') || raw.includes('meal') || raw.includes('lunch') || raw.includes('evening')) return 'food';
+  if (raw.includes('intercity') || raw.includes('flight') || raw.includes('rail') || raw.includes('train') || raw.includes('高铁') || raw.includes('飞机') || raw.includes('往返')) return 'intercity';
+  if (raw.includes('food') || raw.includes('meal') || raw.includes('lunch')) return 'food';
   if (raw.includes('transport') || raw.includes('transit') || raw.includes('drive') || raw.includes('walk')) return 'transport';
+  if (raw.includes('hotel') || raw.includes('lodging') || raw.includes('stay') || raw.includes('住宿') || raw.includes('酒店')) return 'hotel';
+  if (raw.includes('rest') || raw.includes('free_time') || raw.includes('休息')) return 'rest';
   return 'attraction';
 }
 
@@ -781,6 +854,7 @@ function mapBudgetName(rawName: unknown, rawKey: unknown): string {
   if (key === 'lodging') return '住宿';
   if (key === 'meals') return '餐饮';
   if (key === 'transport') return '交通';
+  if (key === 'intercity') return '往返大交通';
   if (key === 'tickets') return '门票';
   if (key === 'buffer') return '预留';
   return '其他';
@@ -848,6 +922,7 @@ function extractItinerary(content: Record<string, unknown>, fallback: typeof EMP
     day: day.day,
     items: day.items.map((item) => ({
       ...item,
+      id: item.id || `${day.day}-${item.time}-${item.title}`,
       type: mapActivityType(item.type),
     })),
   }));
@@ -856,21 +931,29 @@ function extractItinerary(content: Record<string, unknown>, fallback: typeof EMP
   if (!rawDays.length) {
     return fallbackMapped;
   }
+  const city = readString(content, 'city');
 
   const result: UiDay[] = rawDays
     .map((day, index) => {
       const dayObj = asRecord(day);
-      const activities = readArray(dayObj, 'activities');
+      const nodeRows = readArray(dayObj, 'nodes');
+      const activities = nodeRows.length ? nodeRows : readArray(dayObj, 'activities');
       const items: UiItineraryItem[] = activities
         .map((activity) => {
           const act = asRecord(activity);
-          const title = readString(act, 'title') || '未命名活动';
+          const type = mapActivityType(act.type);
+          const title = cleanUiActivityTitle(readString(act, 'title') || '未命名活动', type, city);
           const tagsRaw = readArray(act, 'tags')
             .map((tag) => String(tag))
+            .filter((tag) => !(type === 'food' && (tag === '本地特色' || tag === '当地特色')))
             .filter(Boolean);
+          const startTime = readString(act, 'start_time');
+          const endTime = readString(act, 'end_time');
+          const fallbackTime = readString(act, 'time') || '--:--';
           return {
-            time: readString(act, 'time') || '--:--',
-            type: mapActivityType(act.type),
+            id: readString(act, 'id') || readString(act, 'source_id') || `${index}-${fallbackTime}-${title}`,
+            time: startTime && endTime ? `${startTime}-${endTime}` : fallbackTime,
+            type,
             title,
             reason: readString(act, 'reason') || '结合天气、预算和动线安排',
             duration: readString(act, 'duration') || '1小时',
@@ -889,6 +972,17 @@ function extractItinerary(content: Record<string, unknown>, fallback: typeof EMP
     .filter((day) => day.items.length > 0);
 
   return result.length ? result : fallbackMapped;
+}
+
+function cleanUiActivityTitle(title: string, type: UiItineraryItem['type'], city: string): string {
+  if (type !== 'food') return title;
+  let next = title.trim();
+  if (city) {
+    next = next.replace(city, '').trim();
+  }
+  if (['本地午餐', '当地午餐', '特色午餐', '午餐'].includes(next)) return '午餐与休息';
+  if (['本地晚餐', '当地晚餐', '特色晚餐', '晚餐'].includes(next)) return '晚餐与自由活动';
+  return next || title;
 }
 
 function extractBudget(

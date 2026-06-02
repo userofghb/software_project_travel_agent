@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Empty, Select, Space, Spin, Tag, Typography } from "antd";
-import { ExternalLink, MapPin, Route } from "lucide-react";
-
-const { Text } = Typography;
+import { Alert, Empty, Space, Spin, Tag } from "antd";
+import { MapPin } from "lucide-react";
 
 declare global {
   interface Window {
@@ -17,7 +15,6 @@ type AMapNamespace = {
   Map: new (container: HTMLDivElement, options: Record<string, unknown>) => AMapInstance;
   Marker: new (options: Record<string, unknown>) => AMapOverlay;
   Pixel: new (x: number, y: number) => unknown;
-  Polyline: new (options: Record<string, unknown>) => AMapOverlay;
   InfoWindow: new (options: Record<string, unknown>) => {
     open: (map: AMapInstance, position: [number, number]) => void;
   };
@@ -37,9 +34,12 @@ type AMapOverlay = {
 
 export type MapPoint = {
   id?: string | number | null;
+  node_id?: string | number | null;
   name?: string | null;
   type?: string | null;
   address?: string | null;
+  day?: string | number | null;
+  order?: string | number | null;
   location?: {
     lng?: number | string | null;
     lat?: number | string | null;
@@ -61,6 +61,8 @@ type PlanMapProps = {
   points?: MapPoint[];
   routes?: MapRoute[];
   activeDate?: string;
+  selectedNodeId?: string | null;
+  onPointSelect?: (nodeId: string) => void;
   height?: number;
 };
 
@@ -104,51 +106,55 @@ function toLngLat(point: MapPoint): [number, number] | null {
   return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
 }
 
-function parsePolyline(polyline?: string | null): [number, number][] {
-  if (!polyline) {
-    return [];
-  }
-  return polyline
-    .split(";")
-    .map((item) => item.split(",").map(Number))
-    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat)) as [number, number][];
+function pointTypeLabel(type?: string | null) {
+  if (type === "hotel") return "酒店";
+  if (type === "food") return "餐馆";
+  if (type === "transport_hub") return "车站/机场";
+  if (type === "attraction") return "景点";
+  return "地点";
 }
 
-function routeLabel(route: MapRoute) {
-  const distance = route.distance_m ? `${(route.distance_m / 1000).toFixed(1)} km` : "距离待估";
-  const duration = route.duration_s ? `${Math.round(route.duration_s / 60)} 分钟` : "耗时待估";
-  return `${distance} / ${duration}`;
+function pointNodeId(point: MapPoint): string {
+  return String(point.node_id ?? point.id ?? "");
 }
 
-function markerContent(type?: string | null) {
-  const isHotel = type === "hotel";
-  const color = isHotel ? "#fa8c16" : "#1677ff";
-  const label = isHotel ? "住" : "游";
-  return `<div style="width:28px;height:28px;border-radius:50%;background:${color};color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.22);border:2px solid white;">${label}</div>`;
+function markerContent(point: MapPoint, selected: boolean) {
+  const type = point.type;
+  const color = type === "hotel" ? "#722ed1" : type === "food" ? "#fa8c16" : type === "transport_hub" ? "#13c2c2" : "#1677ff";
+  const label = type === "hotel" ? "住" : type === "food" ? "食" : type === "transport_hub" ? "站" : String(point.order ?? "游");
+  const size = selected ? 36 : 30;
+  return `<div style="display:flex;align-items:center;gap:6px;transform:translateY(-2px);">
+    <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,.22);border:${selected ? 3 : 2}px solid ${selected ? "#faad14" : "white"};">${label}</div>
+    <div style="max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:white;color:#172033;border:1px solid rgba(0,0,0,.08);border-radius:6px;padding:2px 6px;font-size:12px;box-shadow:0 3px 10px rgba(0,0,0,.12);">${point.name ?? "地点"}</div>
+  </div>`;
 }
 
-export function PlanMap({ points = [], routes = [], activeDate, height = 320 }: PlanMapProps) {
+export function PlanMap({ points = [], activeDate, selectedNodeId, onPointSelect, height = 320 }: PlanMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<AMapInstance | null>(null);
   const overlaysRef = useRef<AMapOverlay[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [error, setError] = useState("");
-  const [selectedDate, setSelectedDate] = useState<string | undefined>(activeDate);
 
-  const validPoints = useMemo(() => points.filter((point) => toLngLat(point)), [points]);
-  const routeDates = useMemo(
-    () => Array.from(new Set(routes.map((route) => String(route.day ?? "")).filter(Boolean))),
-    [routes],
+  const visiblePoints = useMemo(
+    () =>
+      points.filter((point) => {
+        if (!activeDate || point.type === "hotel" || !point.day) {
+          return true;
+        }
+        return String(point.day) === activeDate;
+      }),
+    [points, activeDate],
   );
-  const currentDate = selectedDate || activeDate || routeDates[0];
-  const visibleRoutes = useMemo(
-    () => routes.filter((route) => !currentDate || String(route.day ?? "") === currentDate),
-    [routes, currentDate],
+  const validPoints = useMemo(() => visiblePoints.filter((point) => toLngLat(point)), [visiblePoints]);
+  const pointCounts = useMemo(
+    () => ({
+      attraction: validPoints.filter((point) => point.type === "attraction").length,
+      food: validPoints.filter((point) => point.type === "food").length,
+      hotel: validPoints.filter((point) => point.type === "hotel").length,
+    }),
+    [validPoints],
   );
-
-  useEffect(() => {
-    setSelectedDate(activeDate);
-  }, [activeDate]);
 
   useEffect(() => {
     if (!containerRef.current || !AMAP_KEY || validPoints.length === 0) {
@@ -207,41 +213,31 @@ export function PlanMap({ points = [], routes = [], activeDate, height = 320 }: 
 
     const markers = validPoints.map((point) => {
       const position = toLngLat(point)!;
+      const nodeId = pointNodeId(point);
+      const selected = Boolean(selectedNodeId && nodeId === selectedNodeId);
       const marker = new AMap.Marker({
         position,
-        content: markerContent(point.type),
-        offset: new AMap.Pixel(-14, -14),
+        content: markerContent(point, selected),
+        offset: new AMap.Pixel(-15, -15),
         title: point.name,
       });
       marker.on?.("click", () => {
+        if (nodeId) {
+          onPointSelect?.(nodeId);
+        }
         new AMap.InfoWindow({
-          content: `<div style="min-width:160px"><strong>${point.name ?? "地点"}</strong><div style="margin-top:4px;color:#666">${point.address ?? ""}</div></div>`,
+          content: `<div style="min-width:180px"><div style="font-size:12px;color:#1677ff;margin-bottom:4px">${pointTypeLabel(point.type)}</div><strong>${point.name ?? "地点"}</strong><div style="margin-top:4px;color:#666">${point.address ?? ""}</div></div>`,
           offset: new AMap.Pixel(0, -18),
         }).open(map, position);
       });
       return marker;
     });
 
-    const lines = visibleRoutes
-      .map((route) => parsePolyline(route.polyline))
-      .filter((path) => path.length >= 2)
-      .map(
-        (path) =>
-          new AMap.Polyline({
-            path,
-            strokeColor: "#13c2c2",
-            strokeWeight: 5,
-            strokeOpacity: 0.85,
-            lineJoin: "round",
-            lineCap: "round",
-          }),
-      );
-
-    overlaysRef.current = [...markers, ...lines];
+    overlaysRef.current = markers;
     map.add(overlaysRef.current);
     map.setFitView(overlaysRef.current, false, [44, 32, 76, 32]);
     window.setTimeout(() => map.resize?.(), 0);
-  }, [validPoints, visibleRoutes]);
+  }, [validPoints, selectedNodeId, onPointSelect]);
 
   if (!AMAP_KEY) {
     return (
@@ -278,33 +274,11 @@ export function PlanMap({ points = [], routes = [], activeDate, height = 320 }: 
         </div>
       )}
       <Space size={8} style={{ position: "absolute", left: 12, top: 12, flexWrap: "wrap" }}>
-        {routeDates.length > 1 && (
-          <Select
-            size="small"
-            value={currentDate}
-            style={{ width: 150 }}
-            onChange={setSelectedDate}
-            options={routeDates.map((date) => ({ value: date, label: date }))}
-          />
-        )}
         <Tag icon={<MapPin size={12} />} color="blue">{validPoints.length} 个地点</Tag>
-        <Tag icon={<Route size={12} />} color="cyan">{visibleRoutes.length} 段路线</Tag>
+        {pointCounts.attraction > 0 && <Tag color="blue">{pointCounts.attraction} 景点</Tag>}
+        {pointCounts.food > 0 && <Tag color="orange">{pointCounts.food} 餐馆</Tag>}
+        {pointCounts.hotel > 0 && <Tag color="purple">{pointCounts.hotel} 酒店</Tag>}
       </Space>
-      {visibleRoutes[0] && (
-        <div style={{ position: "absolute", left: 12, bottom: 12, right: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: "rgba(255,255,255,.92)", padding: "8px 10px", borderRadius: 8, boxShadow: "0 6px 18px rgba(0,0,0,.12)" }}>
-          <Text ellipsis style={{ minWidth: 0 }}>
-            {visibleRoutes[0].from} 到 {visibleRoutes[0].to}: {routeLabel(visibleRoutes[0])}
-          </Text>
-          <Button
-            size="small"
-            icon={<ExternalLink size={14} />}
-            href={`https://uri.amap.com/marker?position=${toLngLat(validPoints[0])?.join(",")}&name=${encodeURIComponent(validPoints[0].name ?? "旅行地点")}`}
-            target="_blank"
-          >
-            高德
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

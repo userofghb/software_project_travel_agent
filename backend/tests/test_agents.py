@@ -63,18 +63,39 @@ def test_planning_graph_builds_final_plan_and_warnings():
         activities = day["activities"]
         periods = {activity.get("period") for activity in activities}
         assert len(activities) >= 4
+        assert day.get("nodes")
         assert {"morning", "afternoon", "evening"}.issubset(periods)
         assert any(activity.get("type") == "food" for activity in activities)
+        assert any(activity.get("type") == "transport" for activity in activities)
+        assert all(activity.get("time") != "--:--" for activity in activities if activity.get("type") == "transport")
         assert all("duration" in activity and "budget" in activity for activity in activities)
+        assert not any("本地午餐" in activity.get("title", "") for activity in activities)
+        for node in day["nodes"]:
+            assert _minutes(node["start_time"]) < 24 * 60
+            assert _minutes(node["end_time"]) <= 24 * 60
+            if node.get("type") == "food" and ("晚餐" in str(node.get("title")) or _minutes(node["start_time"]) >= 17 * 60):
+                assert _minutes(node["start_time"]) <= 19 * 60 + 30
+    assert any(
+        activity.get("type") == "hotel"
+        for day in state.final_plan["days"][:-1]
+        for activity in day["activities"]
+    )
     budget = state.final_plan["budget"]
+    transport_activity_total = sum(
+        activity["budget"]
+        for day in state.final_plan["days"]
+        for activity in day["activities"]
+        if activity.get("type") == "transport"
+    )
     assert budget["estimated_total"] > 0
-    assert {item["key"] for item in budget["breakdown"]} == {
+    assert {item["key"] for item in budget["breakdown"]} >= {
         "lodging",
         "meals",
         "transport",
         "tickets",
-        "buffer",
     }
+    assert budget["estimated_total"] == sum(item["value"] for item in budget["breakdown"])
+    assert next(item["value"] for item in budget["breakdown"] if item["key"] == "transport") == transport_activity_total
     assert len(budget["per_day"]) == 4
     assert state.warnings == state.final_plan["warnings"]
     assert len(state.final_plan["warnings"]) == 1
@@ -85,6 +106,7 @@ def test_planning_graph_builds_final_plan_and_warnings():
         "hotel",
         "planner",
         "route",
+        "validator",
         "alert_check",
     ]
 
@@ -121,6 +143,56 @@ def test_planning_graph_preserves_origin_for_ai_plan_generation():
     assert state.final_plan["origin"] == "北京"
     assert state.final_plan["city"] == "上海"
     assert any("北京" in suggestion and "上海" in suggestion for suggestion in state.final_plan["overall_suggestions"])
+    assert any(
+        activity.get("type") == "intercity_transport"
+        for day in state.final_plan["days"]
+        for activity in day["activities"]
+    )
+    assert all(day.get("nodes") for day in state.final_plan["days"])
+    first_intercity = next(
+        activity
+        for activity in state.final_plan["days"][0]["activities"]
+        if activity.get("type") == "intercity_transport"
+    )
+    assert first_intercity["time"] >= "08:00"
+    assert any(item["key"] == "intercity" for item in state.final_plan["budget"]["breakdown"])
+    assert state.final_plan["budget"]["estimated_total"] == sum(
+        item["value"] for item in state.final_plan["budget"]["breakdown"]
+    )
+    assert all(
+        activity.get("location")
+        for day in state.final_plan["days"]
+        for activity in day["activities"]
+        if activity.get("type") == "food"
+    )
+    assert any(
+        activity.get("type") == "transport" and ("餐馆" in str(activity.get("title")) or "午餐餐馆" in str(activity.get("title")))
+        for day in state.final_plan["days"]
+        for activity in day["activities"]
+    )
+    hotel_id = state.final_plan["hotel"]["id"]
+    assert not any(
+        route.get("day") == "2026-05-01" and route.get("from_id") == hotel_id
+        for route in state.final_plan["map"]["routes"]
+    )
+    map_point_ids = {str(point.get("node_id") or point.get("id")) for point in state.final_plan["map"]["points"]}
+    day_node_ids = {
+        str(node.get("id") or node.get("source_id"))
+        for day in state.final_plan["days"]
+        for node in day.get("nodes", [])
+        if node.get("type") != "transport" and node.get("location")
+    }
+    assert map_point_ids <= day_node_ids
+    last_day_nodes = state.final_plan["days"][-1]["nodes"]
+    previous_end = -1
+    for node in last_day_nodes:
+        start = _minutes(node["start_time"])
+        end = _minutes(node["end_time"])
+        assert start >= previous_end
+        assert end > start
+        previous_end = end
+    return_node = next(node for node in last_day_nodes if node.get("type") == "intercity_transport" and node.get("direction") == "return")
+    assert return_node["end_time"] <= "21:30"
 
 
 def test_route_agent_uses_activity_locations_when_plan_attractions_are_partial():
@@ -167,3 +239,8 @@ def test_route_agent_uses_activity_locations_when_plan_attractions_are_partial()
     assert len(map_data["points"]) == 2
     assert any(point["id"] == "poi-1" for point in map_data["points"])
     assert len(map_data["routes"]) == 1
+
+
+def _minutes(value: str) -> int:
+    hour, minute = value.split(":", 1)
+    return int(hour) * 60 + int(minute[:2])

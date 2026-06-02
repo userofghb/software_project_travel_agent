@@ -1,8 +1,9 @@
 ﻿import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Typography, Row, Col, Card, Input, Button, Tag, Space, Divider, message, Badge, Alert, Empty, Spin } from 'antd';
+import { Typography, Row, Col, Card, Input, Button, Tag, Space, Divider, message, Badge, Alert, Empty, Spin, DatePicker, Select } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import dayjs, { type Dayjs } from 'dayjs';
 import {
   Wand2,
   MapPin,
@@ -25,15 +26,24 @@ import { createPlan, getPlanSummary, listPlans, parsePlan } from '../api/plans';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
+const { RangePicker } = DatePicker;
+const DEFAULT_ORIGIN = '南京';
 
 export function HomePage() {
   const navigate = useNavigate();
   const [demandText, setDemandText] = useState('');
+  const [originInput, setOriginInput] = useState(DEFAULT_ORIGIN);
+  const [destinationInput, setDestinationInput] = useState('');
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [budgetRange, setBudgetRange] = useState('medium');
+  const [transportPreference, setTransportPreference] = useState('public_transit');
+  const [originEdited, setOriginEdited] = useState(false);
+  const [destinationEdited, setDestinationEdited] = useState(false);
   const [parsed, setParsed] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
 
   const [parsedData, setParsedData] = useState({
-    origin: '',
+    origin: DEFAULT_ORIGIN,
     destination: '',
     departureTime: '',
     duration: '',
@@ -75,9 +85,15 @@ export function HomePage() {
     setIsParsing(true);
     try {
       const payload = await parsePlan(demandText);
+      const origin = resolveOrigin(payload.origin, originInput, originEdited);
+      const destination = resolveDestination(payload.city, destinationInput, destinationEdited);
+      setOriginInput(origin);
+      setDestinationInput(destination);
+      setOriginEdited(false);
+      setDestinationEdited(false);
       setParsedData({
-        origin: payload.origin || '',
-        destination: payload.city,
+        origin,
+        destination,
         departureTime: formatDepartureTime(payload.start_date),
         duration: payload.duration || formatDuration(payload.start_date, payload.end_date),
         budget: mapBudgetLabel(payload.budget_range),
@@ -92,22 +108,43 @@ export function HomePage() {
   };
 
   const handleGenerate = async () => {
-    if (!demandText.trim()) {
-      message.warning('请输入您的旅行想法');
+    if (!demandText.trim() && !destinationInput.trim()) {
+      message.warning('请至少填写目的地或补充描述');
       return;
     }
     try {
-      // 先调用后端解析 API
-      const payload = await parsePlan(demandText);
+      const payload = demandText.trim() ? await parsePlan(demandText) : buildManualPayload(originInput, destinationInput, dateRange, budgetRange, transportPreference);
+      const origin = resolveOrigin(payload.origin, originInput, originEdited);
+      const destination = resolveDestination(payload.city, destinationInput, destinationEdited);
+      const startDate = dateRange?.[0]?.format('YYYY-MM-DD') || payload.start_date;
+      const endDate = dateRange?.[1]?.format('YYYY-MM-DD') || payload.end_date;
+      const payloadWithRoute = {
+        ...payload,
+        origin,
+        city: destination,
+        start_date: startDate,
+        end_date: endDate,
+        budget_range: budgetRange || payload.budget_range,
+        transport_preference: transportPreference || payload.transport_preference,
+        title: replaceTitleCity(payload.title, payload.city, destination),
+        notes: [payload.notes, demandText].filter(Boolean).join('\n'),
+      };
+      setOriginInput(origin);
+      setDestinationInput(destination);
+      setOriginEdited(false);
+      setDestinationEdited(false);
       setParsedData({
-        origin: payload.origin || '',
-        destination: payload.city,
-        departureTime: formatDepartureTime(payload.start_date),
-        duration: payload.duration || formatDuration(payload.start_date, payload.end_date),
-        budget: mapBudgetLabel(payload.budget_range),
+        origin,
+        destination,
+        departureTime: formatDepartureTime(startDate),
+        duration: formatDuration(startDate, endDate),
+        budget: mapBudgetLabel(payloadWithRoute.budget_range),
       });
+      setDateRange([dayjs(payload.start_date), dayjs(payload.end_date)]);
+      setBudgetRange(payload.budget_range || 'medium');
+      setTransportPreference(payload.transport_preference || 'public_transit');
       setParsed(true);
-      createPlanMutation.mutate(payload);
+      createPlanMutation.mutate(payloadWithRoute);
     } catch (err) {
       message.error('解析失败，请检查输入');
     }
@@ -116,6 +153,8 @@ export function HomePage() {
   const applyTemplate = (template: string) => {
     setDemandText(template);
     setParsed(false);
+    setDestinationInput('');
+    setDestinationEdited(false);
   };
 
   const templates = [
@@ -204,8 +243,69 @@ export function HomePage() {
 
       <Row gutter={24} style={{ marginBottom: 40 }}>
         <Col xs={24} lg={14}>
-          <Card title={<Space><Wand2 size={20} color="#1890ff" /><span>一句话生成你的专属行程</span></Space>} variant="borderless" style={{ borderRadius: 16, height: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-            <TextArea rows={5} placeholder="例如：从北京出发去成都玩三天，预算3000，想吃火锅，行程不要太赶。" value={demandText} onChange={(e) => setDemandText(e.target.value)} style={{ borderRadius: 12, resize: 'none', marginBottom: 16, fontSize: 16, padding: 16 }} />
+          <Card title={<Space><Wand2 size={20} color="#1890ff" /><span>填写核心信息，生成专属行程</span></Space>} variant="borderless" style={{ borderRadius: 16, height: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+            <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+              <Col xs={24} sm={12}>
+                <Input
+                  value={originInput}
+                  onChange={(e) => {
+                    setOriginInput(e.target.value);
+                    setOriginEdited(true);
+                  }}
+                  prefix={<MapPin size={16} color="#13c2c2" />}
+                  addonBefore="出发地"
+                  placeholder={DEFAULT_ORIGIN}
+                />
+              </Col>
+              <Col xs={24} sm={12}>
+                <Input
+                  value={destinationInput}
+                  onChange={(e) => {
+                    setDestinationInput(e.target.value);
+                    setDestinationEdited(true);
+                  }}
+                  prefix={<MapPin size={16} color="#1890ff" />}
+                  addonBefore="目的地"
+                  placeholder="例如：成都"
+                />
+              </Col>
+              <Col xs={24} sm={12}>
+                <RangePicker
+                  value={dateRange}
+                  onChange={(value) => setDateRange(value && value[0] && value[1] ? [value[0], value[1]] : null)}
+                  style={{ width: '100%' }}
+                  placeholder={['出发日期', '返程日期']}
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                <Select
+                  value={budgetRange}
+                  onChange={setBudgetRange}
+                  style={{ width: '100%' }}
+                  options={[
+                    { label: '经济预算', value: 'low' },
+                    { label: '中等预算', value: 'medium' },
+                    { label: '品质预算', value: 'high' },
+                  ]}
+                />
+              </Col>
+              <Col xs={12} sm={6}>
+                <Select
+                  value={transportPreference}
+                  onChange={setTransportPreference}
+                  style={{ width: '100%' }}
+                  options={[
+                    { label: '公交地铁', value: 'public_transit' },
+                    { label: '打车优先', value: 'private_transport' },
+                    { label: '步行优先', value: 'walking' },
+                  ]}
+                />
+              </Col>
+            </Row>
+            <TextArea rows={4} placeholder="补充描述：例如想吃火锅、行程不要太赶、希望多安排博物馆。" value={demandText} onChange={(e) => {
+              setDemandText(e.target.value);
+              setParsed(false);
+            }} style={{ borderRadius: 12, resize: 'none', marginBottom: 16, fontSize: 16, padding: 16 }} />
             <Row justify="space-between" align="middle">
               <Col>
                 <Button type="default" icon={<Activity size={16} />} onClick={handleParse} loading={isParsing} style={{ borderRadius: 8 }}>
@@ -247,7 +347,7 @@ export function HomePage() {
                   </div>
 
                   <Row gutter={[16, 16]}>
-                    <Col span={12}><InfoItem icon={<MapPin size={14} />} label="出发地" value={parsedData.origin || '未识别'} /></Col>
+                    <Col span={12}><InfoItem icon={<MapPin size={14} />} label="出发地" value={parsedData.origin || DEFAULT_ORIGIN} /></Col>
                     <Col span={12}><InfoItem icon={<MapPin size={14} />} label="目的地" value={parsedData.destination} /></Col>
                     <Col span={12}><InfoItem icon={<Calendar size={14} />} label="出发时间" value={parsedData.departureTime || '待确认'} /></Col>
                     <Col span={12}><InfoItem icon={<Calendar size={14} />} label="时长" value={parsedData.duration} /></Col>
@@ -394,6 +494,48 @@ function mapBudgetLabel(range: string): string {
   if (range === 'low') return '低预算';
   if (range === 'high') return '高预算';
   return '中等预算';
+}
+
+function resolveOrigin(parsedOrigin: string | null | undefined, currentOrigin: string, userEdited: boolean): string {
+  if (userEdited && currentOrigin.trim()) return currentOrigin.trim();
+  return (parsedOrigin || currentOrigin || DEFAULT_ORIGIN).trim() || DEFAULT_ORIGIN;
+}
+
+function resolveDestination(parsedDestination: string | null | undefined, currentDestination: string, userEdited: boolean): string {
+  if (userEdited && currentDestination.trim()) return currentDestination.trim();
+  return (parsedDestination || currentDestination || '').trim() || parsedDestination || '';
+}
+
+function replaceTitleCity(title: string, parsedDestination: string, destination: string): string {
+  if (!destination) return title;
+  if (parsedDestination && title.includes(parsedDestination)) {
+    return title.replace(parsedDestination, destination);
+  }
+  return `${destination}旅行方案`;
+}
+
+function buildManualPayload(
+  origin: string,
+  destination: string,
+  dateRange: [Dayjs, Dayjs] | null,
+  budgetRange: string,
+  transportPreference: string,
+) {
+  const start = dateRange?.[0] ?? dayjs();
+  const end = dateRange?.[1] ?? start.add(2, 'day');
+  const city = destination.trim() || '目的地';
+  return {
+    title: `${city}旅行方案`,
+    origin: origin.trim() || DEFAULT_ORIGIN,
+    city,
+    start_date: start.format('YYYY-MM-DD'),
+    end_date: end.format('YYYY-MM-DD'),
+    budget_range: budgetRange || 'medium',
+    transport_preference: transportPreference || 'public_transit',
+    accommodation_preference: 'comfort',
+    notes: '',
+    duration: formatDuration(start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD')),
+  };
 }
 
 

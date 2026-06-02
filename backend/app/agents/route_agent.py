@@ -1,7 +1,15 @@
 from typing import Any
 
 from app.agents.state import PlanningState
-from app.services.providers import MockRouteProvider, get_route_provider
+from app.services.providers import (
+    MockRouteProvider,
+    enrich_meals_with_restaurants,
+    enrich_days_with_routes,
+    ensure_intercity_transfer_activities,
+    ensure_hotel_evening_activities,
+    get_route_provider,
+    normalize_plan_budget,
+)
 
 
 def run_route_agent(state: PlanningState) -> dict[str, Any]:
@@ -9,6 +17,19 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
     final_plan = dict(state.final_plan)
     route_attractions = _merge_route_attractions(final_plan.get("attractions"), state.attractions)
     final_plan["attractions"] = route_attractions
+    final_plan["days"] = enrich_meals_with_restaurants(
+        days=final_plan.get("days", []),
+        city=state.request["city"],
+        budget_range=state.request.get("budget_range", "medium"),
+    )
+    final_plan["days"] = ensure_intercity_transfer_activities(
+        days=final_plan.get("days", []),
+        request=state.request,
+    )
+    final_plan["days"] = ensure_hotel_evening_activities(
+        days=final_plan.get("days", []),
+        hotel=final_plan.get("hotel") or state.hotels,
+    )
     try:
         map_data = provider.build_routes(
             days=final_plan.get("days", []),
@@ -30,6 +51,18 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
 
     existing_map = final_plan.get("map") if isinstance(final_plan.get("map"), dict) else {}
     final_plan["map"] = {**existing_map, **map_data}
+    final_plan["days"] = enrich_days_with_routes(
+        days=final_plan.get("days", []),
+        routes=map_data.get("routes", []),
+        transport_preference=state.request.get("transport_preference", "public_transit"),
+        budget_range=state.request.get("budget_range", "medium"),
+    )
+    final_plan["budget"] = normalize_plan_budget(
+        budget=final_plan.get("budget"),
+        days=final_plan.get("days", []),
+        request=state.request,
+        hotel=final_plan.get("hotel") or state.hotels,
+    )
     return {
         "final_plan": final_plan,
         "map_data": map_data,
