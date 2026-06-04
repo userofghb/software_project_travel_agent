@@ -41,6 +41,12 @@ export function getPlan(planId: number) {
   return apiRequest<TripPlanResponse>(`/api/plans/${planId}`);
 }
 
+export function deletePlan(planId: number) {
+  return apiRequest<void>(`/api/plans/${planId}`, {
+    method: "DELETE",
+  });
+}
+
 export function getPlanSummary(planId: number) {
   return apiRequest<PlanSummaryResponse>(`/api/plans/${planId}/summary`);
 }

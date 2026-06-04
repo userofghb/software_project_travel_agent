@@ -4,7 +4,8 @@ from app.agents.graph import build_planning_graph, run_planning_graph
 from app.agents.route_agent import run_route_agent
 from app.agents.state import PlanningState
 from app.core.config import get_settings
-from app.services.providers import MockAttractionProvider
+from app.services import providers
+from app.services.providers import MockAttractionProvider, RuleBasedPlannerProvider
 
 
 def setup_function():
@@ -58,7 +59,7 @@ def test_planning_graph_builds_final_plan_and_warnings():
     )
     assert "map" in state.final_plan
     assert "points" in state.final_plan["map"]
-    assert "routes" in state.final_plan["map"]
+    assert "routes" not in state.final_plan["map"]
     for day in state.final_plan["days"]:
         activities = day["activities"]
         periods = {activity.get("period") for activity in activities}
@@ -66,6 +67,12 @@ def test_planning_graph_builds_final_plan_and_warnings():
         assert day.get("nodes")
         assert {"morning", "afternoon", "evening"}.issubset(periods)
         assert any(activity.get("type") == "food" for activity in activities)
+        meal_periods = {
+            activity.get("period")
+            for activity in activities
+            if activity.get("type") == "food"
+        }
+        assert {"morning", "lunch", "evening"}.issubset(meal_periods)
         assert any(activity.get("type") == "transport" for activity in activities)
         assert all(activity.get("time") != "--:--" for activity in activities if activity.get("type") == "transport")
         assert all("duration" in activity and "budget" in activity for activity in activities)
@@ -170,11 +177,6 @@ def test_planning_graph_preserves_origin_for_ai_plan_generation():
         for day in state.final_plan["days"]
         for activity in day["activities"]
     )
-    hotel_id = state.final_plan["hotel"]["id"]
-    assert not any(
-        route.get("day") == "2026-05-01" and route.get("from_id") == hotel_id
-        for route in state.final_plan["map"]["routes"]
-    )
     map_point_ids = {str(point.get("node_id") or point.get("id")) for point in state.final_plan["map"]["points"]}
     day_node_ids = {
         str(node.get("id") or node.get("source_id"))
@@ -236,9 +238,146 @@ def test_route_agent_uses_activity_locations_when_plan_attractions_are_partial()
     result = run_route_agent(state)
     map_data = result["final_plan"]["map"]
 
-    assert len(map_data["points"]) == 2
+    assert len(map_data["points"]) >= 2
     assert any(point["id"] == "poi-1" for point in map_data["points"])
-    assert len(map_data["routes"]) == 1
+    assert "routes" not in map_data
+    assert any(
+        activity.get("type") == "transport"
+        for day in result["final_plan"]["days"]
+        for activity in day.get("activities", [])
+    )
+
+
+def test_enrich_meals_calls_real_provider_for_breakfast_lunch_and_dinner(monkeypatch):
+    calls = []
+
+    def fake_should_use_real(provider):
+        return provider == "amap"
+
+    def fake_amap_place_around(city, location, keywords, types, offset):
+        calls.append(keywords)
+        return [
+            {
+                "id": f"poi-{len(calls)}",
+                "name": f"真实餐馆 {len(calls)}",
+                "location": f"{121.48 + len(calls) * 0.001},{31.23 + len(calls) * 0.001}",
+                "address": "真实地址",
+                "type": "餐饮服务",
+            }
+        ]
+
+    monkeypatch.setattr(providers, "_should_use_real", fake_should_use_real)
+    monkeypatch.setattr(providers, "_amap_place_around", fake_amap_place_around)
+
+    days = [
+        {
+            "date": "2026-05-01",
+            "activities": [
+                {
+                    "time": "09:00-11:00",
+                    "period": "morning",
+                    "type": "attraction",
+                    "title": "City Museum",
+                    "location": {"lng": 121.48, "lat": 31.23},
+                }
+            ],
+        }
+    ]
+
+    enriched = providers.enrich_meals_with_restaurants(days, "Shanghai", "medium")
+    meals = [activity for activity in enriched[0]["activities"] if activity.get("type") == "food"]
+
+    assert len(meals) == 3
+    assert all(meal.get("location") for meal in meals)
+    assert any("早餐" in keywords for keywords in calls)
+    assert any("午餐" in keywords for keywords in calls)
+    assert any("晚餐" in keywords for keywords in calls)
+
+
+def test_rule_based_planner_uses_profile_pace_and_weather_sensitivity():
+    request = {
+        "title": "Profile trip",
+        "city": "Shanghai",
+        "start_date": "2026-05-01",
+        "end_date": "2026-05-01",
+        "budget_range": "medium",
+        "transport_preference": "public_transit",
+        "accommodation_preference": "comfort",
+    }
+    attractions = [
+        {"id": "outdoor", "name": "City Park", "category": "公园", "location": {"lng": 121.48, "lat": 31.23}},
+        {"id": "museum", "name": "History Museum", "category": "博物馆", "location": {"lng": 121.49, "lat": 31.24}},
+        {"id": "mall", "name": "Shopping Mall", "category": "商场", "location": {"lng": 121.50, "lat": 31.25}},
+        {"id": "street", "name": "Walking Street", "category": "步行街", "location": {"lng": 121.51, "lat": 31.26}},
+    ]
+    weather = [{"date": "2026-05-01", "condition": "cloudy", "risk_score": -1}]
+    hotel = {"name": "Base Hotel", "price_per_night": 300, "location": {"lng": 121.47, "lat": 31.22}}
+
+    relaxed = RuleBasedPlannerProvider().generate_plan(
+        request,
+        {"pace_preference": "relaxed", "risk_sensitivity": "high", "travel_style": "culture"},
+        attractions,
+        weather,
+        hotel,
+    )
+    intensive = RuleBasedPlannerProvider().generate_plan(
+        request,
+        {"pace_preference": "intensive", "risk_sensitivity": "low", "travel_style": "shopping"},
+        attractions,
+        weather,
+        hotel,
+    )
+
+    relaxed_attractions = [item for item in relaxed["days"][0]["activities"] if item.get("type") == "attraction"]
+    intensive_attractions = [item for item in intensive["days"][0]["activities"] if item.get("type") == "attraction"]
+
+    assert len(relaxed_attractions) < len(intensive_attractions)
+    assert relaxed["days"][0]["weather_suggestion"].startswith("当天存在天气风险")
+
+
+def test_hotel_breakfast_preference_does_not_call_external_breakfast_provider(monkeypatch):
+    calls = []
+
+    def fake_should_use_real(provider):
+        return provider == "amap"
+
+    def fake_amap_place_around(city, location, keywords, types, offset):
+        calls.append(keywords)
+        return [
+            {
+                "id": f"poi-{len(calls)}",
+                "name": f"真实餐馆 {len(calls)}",
+                "location": f"{121.48 + len(calls) * 0.001},{31.23 + len(calls) * 0.001}",
+                "address": "真实地址",
+                "type": "餐饮服务",
+            }
+        ]
+
+    monkeypatch.setattr(providers, "_should_use_real", fake_should_use_real)
+    monkeypatch.setattr(providers, "_amap_place_around", fake_amap_place_around)
+
+    days = [
+        {
+            "date": "2026-05-01",
+            "activities": [
+                {
+                    "time": "09:00-11:00",
+                    "period": "morning",
+                    "type": "attraction",
+                    "title": "City Museum",
+                    "location": {"lng": 121.48, "lat": 31.23},
+                }
+            ],
+        }
+    ]
+
+    enriched = providers.enrich_meals_with_restaurants(days, "Shanghai", "medium", "hotel_with_breakfast")
+    meals = [activity for activity in enriched[0]["activities"] if activity.get("type") == "food"]
+
+    assert any(meal.get("title") == "酒店早餐" and meal.get("budget") == 0 for meal in meals)
+    assert not any("早餐" in keywords for keywords in calls)
+    assert any("午餐" in keywords for keywords in calls)
+    assert any("晚餐" in keywords for keywords in calls)
 
 
 def _minutes(value: str) -> int:

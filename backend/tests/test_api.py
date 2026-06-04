@@ -48,6 +48,38 @@ def test_auth_register_login_and_me(client):
     assert profile["interest_tags"] == ["历史", "美食"]
 
 
+def test_update_account_email_and_password(client):
+    register(client)
+    headers = login(client)
+
+    update_email_response = client.put(
+        "/api/auth/me",
+        headers=headers,
+        json={"email": "alice.new@example.com"},
+    )
+    assert update_email_response.status_code == 200
+    assert update_email_response.json()["email"] == "alice.new@example.com"
+
+    bad_password_response = client.put(
+        "/api/auth/me",
+        headers=headers,
+        json={"current_password": "wrong123", "new_password": "secret456"},
+    )
+    assert bad_password_response.status_code == 400
+
+    update_password_response = client.put(
+        "/api/auth/me",
+        headers=headers,
+        json={"current_password": "secret123", "new_password": "secret456"},
+    )
+    assert update_password_response.status_code == 200
+
+    old_login = client.post("/api/auth/login", json={"username": "alice", "password": "secret123"})
+    assert old_login.status_code == 401
+    new_login = client.post("/api/auth/login", json={"username": "alice", "password": "secret456"})
+    assert new_login.status_code == 200
+
+
 def test_profile_update(client):
     register(client)
     headers = login(client)
@@ -179,6 +211,14 @@ def test_plan_task_version_and_warnings_flow(client):
     regenerated_status = client.get(f"/api/tasks/{regenerated_task}", headers=headers)
     assert regenerated_status.status_code == 200
     assert regenerated_status.json()["status"] == "success"
+
+    delete_response = client.delete(f"/api/plans/{plan_id}", headers=headers)
+    assert delete_response.status_code == 204
+    deleted_get = client.get(f"/api/plans/{plan_id}", headers=headers)
+    assert deleted_get.status_code == 404
+    plans_after_delete = client.get("/api/plans", headers=headers)
+    assert plans_after_delete.status_code == 200
+    assert plans_after_delete.json() == []
 
 
 def test_export_plan_version_pdf(client):

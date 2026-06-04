@@ -17,6 +17,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AccountUpdateRequest(BaseModel):
+    email: EmailStr | None = None
+    current_password: str | None = Field(default=None, min_length=6, max_length=128)
+    new_password: str | None = Field(default=None, min_length=6, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

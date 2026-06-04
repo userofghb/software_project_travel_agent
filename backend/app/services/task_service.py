@@ -29,11 +29,11 @@ class TaskService:
     def get_logs(self, task_id: int, user: User) -> TaskLogsResponse:
         task = self._get_owned_task(task_id, user)
         step_defs = [
-            ("task_created", "Task created", 0),
-            ("queued", "Task queued", 10),
-            ("planning", "Planning in progress", 70),
-            ("persisting", "Persisting plan and version", 90),
-            ("completed", "Task completed", 100),
+            ("task_created", "任务已创建，正在读取你的目的地、日期和偏好", 0),
+            ("queued", "任务已进入后台队列，准备调度生成流程", 10),
+            ("planning", "正在综合用户画像、天气、景点、餐饮、住宿和预算", 70),
+            ("persisting", "正在保存方案、版本和天气预警", 90),
+            ("completed", "方案已生成完成", 100),
         ]
         states: list[str] = []
         if task.status == "pending":
@@ -59,9 +59,9 @@ class TaskService:
             if status_text == "running":
                 msg = f"{message}..."
             if status_text == "waiting":
-                msg = "Waiting for previous step"
+                msg = "等待前一步完成"
             if task.status == "failed" and index == len(step_defs) - 1 and task.error_message:
-                msg = f"Task failed: {task.error_message}"
+                msg = f"任务失败：{task.error_message}"
             timestamp = task.created_at if index <= 1 else task.updated_at
             logs.append(
                 TaskLogItem(

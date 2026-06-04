@@ -9,6 +9,8 @@ import {
   Drawer,
   Empty,
   Input,
+  InputNumber,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -24,6 +26,7 @@ import { motion } from 'framer-motion';
 import dayjs from 'dayjs';
 import {
   editPlanVersion,
+  deletePlan,
   getPlan,
   getPlanSummary,
   listPlanVersions,
@@ -33,7 +36,7 @@ import {
 } from '../api/plans';
 import { getPlanWarnings } from '../api/warnings';
 import type { TripPlanCreateRequest, TripPlanResponse, TripPlanVersionResponse } from '../api/types';
-import { PlanMap, type MapPoint, type MapRoute } from '../components/PlanMap';
+import { PlanMap, type MapPoint } from '../components/PlanMap';
 import {
   SunSnow,
   Wallet,
@@ -49,6 +52,10 @@ import {
   Wand2,
   History,
   RotateCcw,
+  Edit3,
+  Plus,
+  Save,
+  Trash2,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -68,7 +75,6 @@ const EMPTY_PLAN_DETAIL = {
   itinerary: [] as UiDay[],
   map: {
     points: [] as MapPoint[],
-    routes: [] as MapRoute[],
   },
 };
 
@@ -116,7 +122,6 @@ type UiPlanDetail = {
   itinerary: UiDay[];
   map: {
     points: MapPoint[];
-    routes: MapRoute[];
   };
 };
 
@@ -131,10 +136,16 @@ export function PlanDetailPage() {
   const [activeDay, setActiveDay] = useState('1');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
+  const [manualDrawerVisible, setManualDrawerVisible] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
   const [editSummary, setEditSummary] = useState('详情页微调');
   const [regenBudgetRange, setRegenBudgetRange] = useState<string>('medium');
   const [regenNotes, setRegenNotes] = useState('');
+  const [aiGoal, setAiGoal] = useState('根据当前用户画像优化行程节奏，保留三餐和住宿安排');
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualSummary, setManualSummary] = useState('用户手动修改计划');
+  const [manualSuggestions, setManualSuggestions] = useState('');
+  const [manualDays, setManualDays] = useState<UiDay[]>([]);
   const [exportingPdf, setExportingPdf] = useState(false);
   const itemRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -225,8 +236,6 @@ export function PlanDetailPage() {
   const activeDayIndex = Math.max(0, Number(activeDay) - 1);
   const activeWeather = uiPlan.weather[activeDayIndex];
   const activeItinerary = uiPlan.itinerary[activeDayIndex];
-  const activeTravelItems = activeItinerary?.items.filter((item) => item.type === 'intercity') ?? [];
-  const activeCityItems = activeItinerary?.items.filter((item) => item.type !== 'intercity') ?? [];
 
   const handlePointSelect = (nodeId: string) => {
     setSelectedNodeId(nodeId);
@@ -275,6 +284,18 @@ export function PlanDetailPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deletePlan(planIdNumber),
+    onSuccess: async () => {
+      message.success('方案已删除');
+      await queryClient.invalidateQueries({ queryKey: ['plans'] });
+      navigate('/history');
+    },
+    onError: (err: Error) => {
+      message.error(err.message || '删除失败');
+    },
+  });
+
   const exportPdf = async () => {
     if (!selectedVersion) {
       message.warning('请选择要导出的版本');
@@ -316,6 +337,33 @@ export function PlanDetailPage() {
     },
   });
 
+  const openManualEditor = () => {
+    const content = getVersionContent(selectedVersion);
+    setManualTitle(readString(content, 'title') || plan?.title || '');
+    setManualSummary('用户手动修改计划');
+    setManualSuggestions(readArray(content, 'overall_suggestions').map((item) => String(item)).join('\n'));
+    setManualDays(deepClone(uiPlan.itinerary));
+    setManualDrawerVisible(true);
+  };
+
+  const saveManualEdit = () => {
+    if (!selectedVersion) {
+      message.warning('当前没有可编辑版本');
+      return;
+    }
+    const content = getVersionContent(selectedVersion);
+    const next = applyManualPlanEdit(content, manualTitle, manualDays, manualSuggestions);
+    editMutation.mutate(
+      {
+        summary: manualSummary || '用户手动修改计划',
+        content: next,
+      },
+      {
+        onSuccess: () => setManualDrawerVisible(false),
+      },
+    );
+  };
+
   const onApplyLowerBudget = () => {
     const currentContent = getVersionContent(selectedVersion);
     const next = applyLowerBudget(currentContent);
@@ -335,7 +383,12 @@ export function PlanDetailPage() {
   };
 
   const onApplyRainAvoid = () => {
-    const payload = buildRegeneratePayload(plan, regenBudgetRange, regenNotes || '规避降雨，增加室内活动');
+    const payload = buildRegeneratePayload(
+      plan,
+      regenBudgetRange,
+      [aiGoal, regenNotes].filter(Boolean).join('\n'),
+      getVersionContent(selectedVersion),
+    );
     regenerateMutation.mutate(payload);
   };
 
@@ -436,6 +489,13 @@ export function PlanDetailPage() {
                 恢复该版本
               </Button>
               <Button
+                icon={<Edit3 size={16} />}
+                disabled={!selectedVersion}
+                onClick={openManualEditor}
+              >
+                手动修改
+              </Button>
+              <Button
                 type="primary"
                 icon={<Wand2 size={16} />}
                 style={{ background: '#13c2c2', borderColor: '#13c2c2' }}
@@ -443,6 +503,18 @@ export function PlanDetailPage() {
               >
                 AI 优化
               </Button>
+              <Popconfirm
+                title="删除方案"
+                description="删除后将移除该方案及其版本记录，无法恢复。"
+                okText="删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
+                onConfirm={() => deleteMutation.mutate()}
+              >
+                <Button danger icon={<Trash2 size={16} />} loading={deleteMutation.isPending}>
+                  删除
+                </Button>
+              </Popconfirm>
             </Space>
           </Col>
         </Row>
@@ -453,7 +525,7 @@ export function PlanDetailPage() {
           style={{ marginBottom: 16 }}
           type="warning"
           showIcon
-          message="部分接口加载失败，已回退到可用数据"
+          message="部分信息暂时加载失败，已显示当前可用内容"
           description={
             summaryQuery.error?.message ||
             warningsQuery.error?.message ||
@@ -501,16 +573,8 @@ export function PlanDetailPage() {
                 <Empty description="暂无行程数据" />
               ) : (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                  {activeTravelItems.length > 0 ? (
-                    <div>
-                      <Text strong style={{ display: 'block', marginBottom: 8 }}>抵达/返程</Text>
-                      <Space direction="vertical" style={{ width: '100%' }}>
-                        {activeTravelItems.map((item) => renderItineraryCard(item, itemRefs, selectedNodeId, setSelectedNodeId))}
-                      </Space>
-                    </div>
-                  ) : null}
                   <Timeline
-                    items={activeCityItems.map((item) => ({
+                    items={activeItinerary.items.map((item) => ({
                       color: timelineColor(item.type),
                       dot: (
                         <div
@@ -609,13 +673,154 @@ export function PlanDetailPage() {
       </Row>
 
       <Drawer
-        title="AI 行程优化"
+        title="手动修改计划"
+        placement="right"
+        onClose={() => setManualDrawerVisible(false)}
+        open={manualDrawerVisible}
+        width={620}
+        extra={
+          <Button type="primary" icon={<Save size={16} />} loading={editMutation.isPending} onClick={saveManualEdit}>
+            保存为新版本
+          </Button>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Card size="small" title="方案信息">
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              <Input value={manualTitle} onChange={(event) => setManualTitle(event.target.value)} placeholder="方案标题" />
+              <Input value={manualSummary} onChange={(event) => setManualSummary(event.target.value)} placeholder="修改摘要" />
+              <Input.TextArea
+                rows={4}
+                value={manualSuggestions}
+                onChange={(event) => setManualSuggestions(event.target.value)}
+                placeholder="整体建议，每行一条"
+              />
+            </Space>
+          </Card>
+
+          {manualDays.map((day, dayIndex) => (
+            <Card
+              key={`${day.day}-${day.date ?? dayIndex}`}
+              size="small"
+              title={`Day ${day.day}${day.date ? ` · ${day.date}` : ''}`}
+              extra={
+                <Button
+                  size="small"
+                  icon={<Plus size={14} />}
+                  onClick={() => setManualDays(addManualActivity(manualDays, dayIndex))}
+                >
+                  添加活动
+                </Button>
+              }
+            >
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                {day.items.map((item, itemIndex) => (
+                  <Card key={item.id} size="small" style={{ borderRadius: 8 }}>
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                        <Text strong>{item.time || '未设置时间'}</Text>
+                        <Button
+                          danger
+                          size="small"
+                          icon={<Trash2 size={14} />}
+                          onClick={() => setManualDays(removeManualActivity(manualDays, dayIndex, itemIndex))}
+                        >
+                          删除
+                        </Button>
+                      </Space>
+                      <Row gutter={[8, 8]}>
+                        <Col span={8}>
+                          <Input
+                            value={item.time}
+                            placeholder="时间"
+                            onChange={(event) => setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { time: event.target.value }))}
+                          />
+                        </Col>
+                        <Col span={8}>
+                          <Select
+                            value={item.type}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { type: value }))}
+                            options={[
+                              { label: '景点', value: 'attraction' },
+                              { label: '餐饮', value: 'food' },
+                              { label: '交通', value: 'transport' },
+                              { label: '住宿', value: 'hotel' },
+                              { label: '往返交通', value: 'intercity' },
+                              { label: '休息', value: 'rest' },
+                            ]}
+                          />
+                        </Col>
+                        <Col span={8}>
+                          <InputNumber
+                            min={0}
+                            value={item.budget}
+                            style={{ width: '100%' }}
+                            prefix="¥"
+                            onChange={(value) => setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { budget: Number(value ?? 0) }))}
+                          />
+                        </Col>
+                        <Col span={24}>
+                          <Input
+                            value={item.title}
+                            placeholder="活动标题"
+                            onChange={(event) => setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { title: event.target.value }))}
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Input
+                            value={item.duration}
+                            placeholder="时长"
+                            onChange={(event) => setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { duration: event.target.value }))}
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Input
+                            value={item.tags.join('、')}
+                            placeholder="标签，用顿号分隔"
+                            onChange={(event) =>
+                              setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { tags: splitTags(event.target.value) }))
+                            }
+                          />
+                        </Col>
+                        <Col span={24}>
+                          <Input.TextArea
+                            rows={2}
+                            value={item.reason}
+                            placeholder="安排理由"
+                            onChange={(event) => setManualDays(updateManualActivity(manualDays, dayIndex, itemIndex, { reason: event.target.value }))}
+                          />
+                        </Col>
+                      </Row>
+                    </Space>
+                  </Card>
+                ))}
+              </Space>
+            </Card>
+          ))}
+        </Space>
+      </Drawer>
+
+      <Drawer
+        title="AI 优化计划"
         placement="right"
         onClose={() => setDrawerVisible(false)}
         open={drawerVisible}
         width={430}
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Card size="small" title="优化目标">
+            <Space direction="vertical" style={{ width: '100%' }} size={8}>
+              <Input.TextArea
+                rows={5}
+                value={aiGoal}
+                onChange={(event) => setAiGoal(event.target.value)}
+                placeholder="例如：减少转场、增加亲子友好、保留三餐、雨天优先室内..."
+              />
+              <Text type="secondary">AI 会基于当前方案重新生成一个版本，并尽量保留已有行程结构。</Text>
+            </Space>
+          </Card>
+
           <Card size="small" title="降低预算" hoverable style={{ border: '1px solid #91d5ff' }}>
             <Text type="secondary">自动下调餐饮与住宿预算项，并补充预算优化建议，生成一个新编辑版本。</Text>
             <Input
@@ -650,7 +855,7 @@ export function PlanDetailPage() {
           </Card>
 
           <Card size="small" title="规避降雨" hoverable>
-            <Text type="secondary">基于当前方案参数触发再生成任务，并附加“增加室内活动”的说明。</Text>
+            <Text type="secondary">基于当前方案参数触发再生成任务，并附加你的优化目标。</Text>
             <Space direction="vertical" style={{ width: '100%', marginTop: 12 }} size={8}>
               <Select
                 value={regenBudgetRange}
@@ -663,7 +868,7 @@ export function PlanDetailPage() {
               />
               <Input.TextArea
                 rows={3}
-                placeholder="再生成备注（可选）"
+                placeholder="补充备注（可选）"
                 value={regenNotes}
                 onChange={(e) => setRegenNotes(e.target.value)}
               />
@@ -675,7 +880,7 @@ export function PlanDetailPage() {
               loading={regenerateMutation.isPending}
               onClick={onApplyRainAvoid}
             >
-              应用
+              提交 AI 优化
             </Button>
           </Card>
         </Space>
@@ -1075,14 +1280,12 @@ function extractWeather(
 function extractMap(
   content: Record<string, unknown>,
   fallback: typeof EMPTY_PLAN_DETAIL.map,
-): { points: MapPoint[]; routes: MapRoute[] } {
+): { points: MapPoint[] } {
   const map = asRecord(content.map);
   const points = readArray(map, 'points') as MapPoint[];
-  const routes = readArray(map, 'routes') as MapRoute[];
 
   return {
     points: points.length ? points : fallback.points,
-    routes: routes.length ? routes : fallback.routes,
   };
 }
 
@@ -1109,8 +1312,10 @@ function buildRegeneratePayload(
   plan: TripPlanResponse | undefined,
   budgetRange: string,
   notes: string,
+  content: Record<string, unknown> = {},
 ): TripPlanCreateRequest {
   const today = dayjs().format('YYYY-MM-DD');
+  const profile = asRecord(content.user_profile);
   return {
     title: plan?.title || '行程再生成',
     origin: plan?.origin || undefined,
@@ -1118,10 +1323,113 @@ function buildRegeneratePayload(
     start_date: plan?.start_date || today,
     end_date: plan?.end_date || today,
     budget_range: budgetRange || plan?.budget_range || 'medium',
-    transport_preference: 'public_transit',
-    accommodation_preference: 'comfort',
-    notes: notes || '基于当前版本进行再生成',
+    transport_preference: readString(profile, 'transport_preference') || 'public_transit',
+    accommodation_preference: readString(profile, 'accommodation_preference') || 'comfort',
+    notes: `基于当前版本进行 AI 优化。请尽量保留合理的住宿、三餐、重点景点和日期结构，只按下列目标调整。\n优化目标：${notes || '提升整体行程体验'}`,
   };
+}
+
+function applyManualPlanEdit(
+  content: Record<string, unknown>,
+  title: string,
+  days: UiDay[],
+  suggestionsText: string,
+): Record<string, unknown> {
+  const next = deepClone(content);
+  if (title.trim()) {
+    next.title = title.trim();
+  }
+  next.days = days.map((day) => ({
+    date: day.date,
+    day_number: day.day,
+    activities: day.items.map((item, index) => ({
+      id: item.id || `manual-${day.day}-${index + 1}`,
+      time: item.time,
+      period: periodFromTime(item.time),
+      type: item.type === 'intercity' ? 'intercity_transport' : item.type,
+      title: item.title,
+      reason: item.reason,
+      duration: item.duration,
+      budget: item.budget,
+      tags: item.tags,
+    })),
+  }));
+  next.overall_suggestions = suggestionsText
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  next.meals = days.flatMap((day) =>
+    day.items
+      .filter((item) => item.type === 'food')
+      .map((item) => ({
+        date: day.date,
+        time: item.time,
+        suggestion: item.title,
+        budget: item.budget,
+        tags: item.tags,
+      })),
+  );
+  return next;
+}
+
+function periodFromTime(time: string): string {
+  const match = time.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return 'morning';
+  const hour = Number(match[1]);
+  if (hour < 12) return 'morning';
+  if (hour < 14) return 'lunch';
+  if (hour < 18) return 'afternoon';
+  return 'evening';
+}
+
+function updateManualActivity(days: UiDay[], dayIndex: number, itemIndex: number, patch: Partial<UiItineraryItem>): UiDay[] {
+  return days.map((day, currentDayIndex) => {
+    if (currentDayIndex !== dayIndex) return day;
+    return {
+      ...day,
+      items: day.items.map((item, currentItemIndex) => (currentItemIndex === itemIndex ? { ...item, ...patch } : item)),
+    };
+  });
+}
+
+function addManualActivity(days: UiDay[], dayIndex: number): UiDay[] {
+  return days.map((day, currentDayIndex) => {
+    if (currentDayIndex !== dayIndex) return day;
+    const nextIndex = day.items.length + 1;
+    return {
+      ...day,
+      items: [
+        ...day.items,
+        {
+          id: `manual-${day.day}-${Date.now()}-${nextIndex}`,
+          time: '15:00-16:00',
+          type: 'rest',
+          title: '新增活动',
+          reason: '用户手动添加',
+          duration: '1小时',
+          budget: 0,
+          tags: ['手动添加'],
+        },
+      ],
+    };
+  });
+}
+
+function removeManualActivity(days: UiDay[], dayIndex: number, itemIndex: number): UiDay[] {
+  return days.map((day, currentDayIndex) => {
+    if (currentDayIndex !== dayIndex) return day;
+    return {
+      ...day,
+      items: day.items.filter((_, currentItemIndex) => currentItemIndex !== itemIndex),
+    };
+  });
+}
+
+function splitTags(value: string): string[] {
+  return value
+    .split(/[、,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function applyLowerBudget(content: Record<string, unknown>): Record<string, unknown> {

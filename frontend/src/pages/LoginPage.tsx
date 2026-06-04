@@ -73,7 +73,7 @@ export function LoginPage() {
             智能旅行工作台
           </Typography.Title>
           <Typography.Paragraph style={{ color: "rgba(255,255,255,.72)", fontSize: 16, maxWidth: 420 }}>
-            登录后继续创建旅行方案、查看 Agent 生成进度、管理历史版本和个人旅行画像。
+            登录后继续创建旅行方案、查看生成进度、管理历史版本和个人旅行画像。
           </Typography.Paragraph>
         </div>
 
@@ -84,7 +84,7 @@ export function LoginPage() {
           </Space>
           <Space>
             <LogIn size={18} color="#13c2c2" />
-            <span style={{ color: "rgba(255,255,255,.78)" }}>JWT 登录态自动用于后续接口请求</span>
+            <span style={{ color: "rgba(255,255,255,.78)" }}>登录后会为你保存本次会话</span>
           </Space>
         </Space>
       </section>

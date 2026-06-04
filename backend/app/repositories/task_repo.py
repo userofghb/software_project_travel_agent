@@ -27,3 +27,11 @@ class TaskRepository:
     def list_by_user_id(self, user_id: int) -> list[PlanTask]:
         statement = select(PlanTask).where(PlanTask.user_id == user_id).order_by(PlanTask.created_at.desc())
         return list(self.session.exec(statement).all())
+
+    def list_by_plan_id(self, plan_id: int) -> list[PlanTask]:
+        statement = select(PlanTask).where(PlanTask.plan_id == plan_id).order_by(PlanTask.created_at.desc())
+        return list(self.session.exec(statement).all())
+
+    def delete_for_plan(self, plan_id: int) -> None:
+        for task in self.list_by_plan_id(plan_id):
+            self.session.delete(task)

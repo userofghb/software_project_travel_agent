@@ -1,15 +1,16 @@
 import React, { useState } from "react";
-import { Typography, Card, Row, Col, Space, Tag, Input, Select, Button, Badge, Statistic, Drawer, DatePicker, Form } from "antd";
+import { Typography, Card, Row, Col, Space, Tag, Input, Select, Button, Badge, Statistic, Drawer, Form, Popconfirm, message } from "antd";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { History, Wallet, Search, Filter, Activity, SunSnow, GitBranch } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { History, Wallet, Search, Filter, Activity, SunSnow, GitBranch, Trash2 } from "lucide-react";
 
-import { listPlans, getPlanSummary } from "../api/plans";
+import { listPlans, getPlanSummary, deletePlan } from "../api/plans";
 
 const { Title, Text } = Typography;
 
 export function PlanHistoryPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState("");
   const [riskLevel, setRiskLevel] = useState("all");
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -28,7 +29,6 @@ export function PlanHistoryPage() {
     return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   };
 
-  // 前端过滤：按年份和天数范围
   const filteredPlans = plans.filter((plan) => {
     const planYear = new Date(plan.start_date).getFullYear();
     if (selectedYear && planYear !== selectedYear) return false;
@@ -66,6 +66,18 @@ export function PlanHistoryPage() {
   
   // 获取可用的年份列表
   const availableYears = Array.from(new Set(plans.map((p) => new Date(p.start_date).getFullYear()))).sort().reverse();
+
+  const deleteMutation = useMutation({
+    mutationFn: (planId: number) => deletePlan(planId),
+    onSuccess: async () => {
+      message.success("方案已删除");
+      await queryClient.invalidateQueries({ queryKey: ["plans"] });
+      await queryClient.invalidateQueries({ queryKey: ["history-plan-summaries"] });
+    },
+    onError: (err: Error) => {
+      message.error(err.message || "删除失败");
+    },
+  });
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 40 }}>
@@ -155,6 +167,29 @@ export function PlanHistoryPage() {
                       >
                         查看版本
                       </Button>
+                      <Popconfirm
+                        title="删除方案"
+                        description="删除后将移除该方案及版本记录，无法恢复。"
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true, loading: deleteMutation.isPending }}
+                        onConfirm={(e) => {
+                          e?.stopPropagation();
+                          deleteMutation.mutate(plan.id);
+                        }}
+                        onCancel={(e) => e?.stopPropagation()}
+                      >
+                        <Button
+                          danger
+                          type="text"
+                          size="small"
+                          icon={<Trash2 size={14} />}
+                          loading={deleteMutation.isPending}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          删除
+                        </Button>
+                      </Popconfirm>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         更新于 {plan.updated_at.slice(0, 10)}
                       </Text>

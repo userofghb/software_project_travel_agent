@@ -20,6 +20,10 @@ class VersionRepository:
         statement = select(TripPlanVersion).where(TripPlanVersion.plan_id == plan_id).order_by(TripPlanVersion.version_no.asc())
         return list(self.session.exec(statement).all())
 
+    def delete_for_plan(self, plan_id: int) -> None:
+        for version in reversed(self.list_by_plan_id(plan_id)):
+            self.session.delete(version)
+
     def get_latest_for_plan(self, plan_id: int) -> TripPlanVersion | None:
         statement = (
             select(TripPlanVersion)

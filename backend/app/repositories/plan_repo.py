@@ -23,6 +23,10 @@ class PlanRepository:
     def get_by_id(self, plan_id: int) -> TripPlan | None:
         return self.session.get(TripPlan, plan_id)
 
+    def delete(self, plan: TripPlan) -> None:
+        self.session.delete(plan)
+        self.session.commit()
+
     def list_by_user_id(self, user_id: int, search: str | None = None) -> list[TripPlan]:
         statement = select(TripPlan).where(TripPlan.owner_user_id == user_id)
         if search:

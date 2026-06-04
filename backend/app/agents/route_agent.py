@@ -21,6 +21,7 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
         days=final_plan.get("days", []),
         city=state.request["city"],
         budget_range=state.request.get("budget_range", "medium"),
+        accommodation_preference=state.request.get("accommodation_preference", ""),
     )
     final_plan["days"] = ensure_intercity_transfer_activities(
         days=final_plan.get("days", []),
@@ -31,7 +32,7 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
         hotel=final_plan.get("hotel") or state.hotels,
     )
     try:
-        map_data = provider.build_routes(
+        route_map_data = provider.build_routes(
             days=final_plan.get("days", []),
             hotel=final_plan.get("hotel") or state.hotels,
             attractions=route_attractions,
@@ -40,7 +41,7 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
         )
         errors = state.errors
     except Exception as exc:
-        map_data = MockRouteProvider().build_routes(
+        route_map_data = MockRouteProvider().build_routes(
             days=final_plan.get("days", []),
             hotel=final_plan.get("hotel") or state.hotels,
             attractions=final_plan.get("attractions") or state.attractions,
@@ -50,10 +51,11 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
         errors = [*state.errors, f"route provider failed: {exc}"]
 
     existing_map = final_plan.get("map") if isinstance(final_plan.get("map"), dict) else {}
-    final_plan["map"] = {**existing_map, **map_data}
+    map_data = {"points": route_map_data.get("points") or existing_map.get("points") or []}
+    final_plan["map"] = map_data
     final_plan["days"] = enrich_days_with_routes(
         days=final_plan.get("days", []),
-        routes=map_data.get("routes", []),
+        routes=route_map_data.get("routes", []),
         transport_preference=state.request.get("transport_preference", "public_transit"),
         budget_range=state.request.get("budget_range", "medium"),
     )
@@ -66,7 +68,7 @@ def run_route_agent(state: PlanningState) -> dict[str, Any]:
     return {
         "final_plan": final_plan,
         "map_data": map_data,
-        "routes": map_data.get("routes", []),
+        "routes": [],
         "errors": errors,
         "progress_events": [*state.progress_events, "route"],
     }

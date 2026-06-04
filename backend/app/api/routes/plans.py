@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
 from sqlmodel import Session
 from pydantic import BaseModel
 import re
@@ -163,6 +163,16 @@ def get_plan(
     session: Session = Depends(get_db),
 ) -> TripPlanResponse:
     return PlanService(session).get_plan(plan_id, current_user)
+
+
+@router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_plan(
+    plan_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> Response:
+    PlanService(session).delete_plan(plan_id, current_user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{plan_id}/summary", response_model=PlanSummaryResponse)

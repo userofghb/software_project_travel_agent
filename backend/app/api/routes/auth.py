@@ -3,7 +3,7 @@ from sqlmodel import Session
 
 from app.api.deps import get_current_user, get_db
 from app.db.models import User
-from app.dto.auth import LoginRequest, RegisterRequest, TokenResponse, UserMeResponse
+from app.dto.auth import AccountUpdateRequest, LoginRequest, RegisterRequest, TokenResponse, UserMeResponse
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -28,3 +28,13 @@ def login(payload: LoginRequest, session: Session = Depends(get_db)) -> TokenRes
 @router.get("/me", response_model=UserMeResponse)
 def me(current_user: User = Depends(get_current_user)) -> UserMeResponse:
     return UserMeResponse.model_validate(current_user)
+
+
+@router.put("/me", response_model=UserMeResponse)
+def update_me(
+    payload: AccountUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_db),
+) -> UserMeResponse:
+    user = AuthService(session).update_account(current_user, payload)
+    return UserMeResponse.model_validate(user)

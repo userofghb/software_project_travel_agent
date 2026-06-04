@@ -95,7 +95,7 @@ export function AppLayout({ children }: PropsWithChildren) {
              justifyContent: 'center'
            }}>
              <Map size={32} color="#13c2c2" />
-             <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>AI 路线引擎就绪</div>
+             <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>智能行程助手已就绪</div>
            </div>
         </div>
       </Sider>

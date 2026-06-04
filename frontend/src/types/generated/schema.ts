@@ -47,7 +47,8 @@ export interface paths {
         };
         /** Me */
         get: operations["me_api_auth_me_get"];
-        put?: never;
+        /** Update Me */
+        put: operations["update_me_api_auth_me_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -67,6 +68,47 @@ export interface paths {
         /** Update My Profile */
         put: operations["update_my_profile_api_profile_me_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/me/interests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get My Interest Tags */
+        get: operations["get_my_interest_tags_api_profile_me_interests_get"];
+        /** Update My Interest Tags */
+        put: operations["update_my_interest_tags_api_profile_me_interests_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Plan Text
+         * @description Parse a freeform text input and return a TripPlanCreateRequest.
+         *
+         *     Simple heuristics to extract origin, destination, dates, days and budget.
+         *     If no explicit start date is found, default to today.
+         */
+        post: operations["parse_plan_text_api_plans_parse_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -100,6 +142,23 @@ export interface paths {
         };
         /** Get Plan */
         get: operations["get_plan_api_plans__plan_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Plan Summary */
+        get: operations["get_plan_summary_api_plans__plan_id__summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -152,6 +211,40 @@ export interface paths {
         get?: never;
         /** Edit Plan Version */
         put: operations["edit_plan_version_api_plans__plan_id__versions__version_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/versions/{version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Plan Version */
+        post: operations["restore_plan_version_api_plans__plan_id__versions__version_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/versions/{version_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Plan Version Pdf */
+        get: operations["export_plan_version_pdf_api_plans__plan_id__versions__version_id__export_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -227,6 +320,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{task_id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Task Logs */
+        get: operations["get_task_logs_api_tasks__task_id__logs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -248,10 +358,38 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AccountUpdateRequest */
+        AccountUpdateRequest: {
+            /** Email */
+            email?: string | null;
+            /** Current Password */
+            current_password?: string | null;
+            /** New Password */
+            new_password?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** InterestTagsResponse */
+        InterestTagsResponse: {
+            /** User Id */
+            user_id: number;
+            /** Interest Tags */
+            interest_tags: string[];
+            /** Profile Summary */
+            profile_summary: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** InterestTagsUpdateRequest */
+        InterestTagsUpdateRequest: {
+            /** Interest Tags */
+            interest_tags?: string[];
         };
         /** LoginRequest */
         LoginRequest: {
@@ -259,6 +397,51 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+        };
+        /** ParseRequest */
+        ParseRequest: {
+            /** Text */
+            text: string;
+        };
+        /** PlanSummaryResponse */
+        PlanSummaryResponse: {
+            /** Plan Id */
+            plan_id: number;
+            /** Title */
+            title: string;
+            /** Origin */
+            origin?: string | null;
+            /** City */
+            city: string;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Budget Range */
+            budget_range: string;
+            /** Current Version Id */
+            current_version_id: number;
+            /** Current Version No */
+            current_version_no: number;
+            /** Estimated Total */
+            estimated_total: number | null;
+            /** Risk Level */
+            risk_level: string;
+            /** Pace */
+            pace: string;
+            /** Warning Count */
+            warning_count: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** PlanTaskCreateResponse */
         PlanTaskCreateResponse: {
@@ -304,6 +487,33 @@ export interface components {
             /** Password */
             password: string;
             profile?: components["schemas"]["UserProfileUpdateRequest"] | null;
+        };
+        /** TaskLogItem */
+        TaskLogItem: {
+            /** Step */
+            step: string;
+            /** Status */
+            status: string;
+            /** Message */
+            message: string;
+            /** Progress */
+            progress: number;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+        };
+        /** TaskLogsResponse */
+        TaskLogsResponse: {
+            /** Task Id */
+            task_id: number;
+            /** Status */
+            status: string;
+            /** Progress */
+            progress: number;
+            /** Logs */
+            logs: components["schemas"]["TaskLogItem"][];
         };
         /** TokenResponse */
         TokenResponse: {
@@ -659,6 +869,39 @@ export interface operations {
             };
         };
     };
+    update_me_api_auth_me_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserMeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_my_profile_api_profile_me_get: {
         parameters: {
             query?: never;
@@ -712,7 +955,7 @@ export interface operations {
             };
         };
     };
-    list_plans_api_plans_get: {
+    get_my_interest_tags_api_profile_me_interests_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -727,7 +970,105 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["InterestTagsResponse"];
+                };
+            };
+        };
+    };
+    update_my_interest_tags_api_profile_me_interests_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterestTagsUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterestTagsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_plan_text_api_plans_parse_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripPlanCreateRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_plans_api_plans_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                risk_level?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["TripPlanResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -783,6 +1124,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripPlanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_plan_summary_api_plans__plan_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanSummaryResponse"];
                 };
             };
             /** @description Validation Error */
@@ -886,6 +1258,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripPlanVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_plan_version_api_plans__plan_id__versions__version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TripPlanVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_plan_version_pdf_api_plans__plan_id__versions__version_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: number;
+                version_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -1011,6 +1447,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TripPlanVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_logs_api_tasks__task_id__logs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLogsResponse"];
                 };
             };
             /** @description Validation Error */

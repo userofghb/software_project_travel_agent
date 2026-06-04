@@ -71,6 +71,7 @@ class PlanService:
                 request_json={
                     "mode": "regenerate",
                     "parent_version_id": version_id,
+                    "previous_content": version.content_json,
                     **payload.model_dump(mode="json"),
                 },
             )
@@ -94,6 +95,17 @@ class PlanService:
 
     def get_plan(self, plan_id: int, user: User) -> TripPlanResponse:
         return self._build_plan_response(self._get_owned_plan(plan_id, user))
+
+    def delete_plan(self, plan_id: int, user: User) -> None:
+        plan = self._get_owned_plan(plan_id, user)
+        if plan.id is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
+        plan.current_version_id = None
+        self.plans.save(plan)
+        self.tasks.delete_for_plan(plan.id)
+        self.versions.delete_for_plan(plan.id)
+        self.session.commit()
+        self.plans.delete(plan)
 
     def list_versions(self, plan_id: int, user: User) -> list[TripPlanVersionResponse]:
         plan = self._get_owned_plan(plan_id, user)
@@ -334,6 +346,7 @@ def process_plan_task(task_id: int) -> None:
             payload = dict(task.request_json)
             profile = profiles.get_by_user_id(task.user_id)
             profile_json = profile.profile_json if profile else {}
+            payload = _apply_profile_defaults(payload, profile_json)
 
             state = PlanningState(
                 user_id=task.user_id,
@@ -385,6 +398,8 @@ def process_plan_task(task_id: int) -> None:
 
             warning_response = WeatherService.build_warnings(plan.id, 0, state.final_plan["weather_info"])
             state.final_plan["warnings"] = [item.model_dump() for item in warning_response.warnings]
+            state.final_plan["user_profile"] = profile_json
+            state.final_plan["profile_summary"] = state.profile_summary
 
             version = TripPlanVersion(
                 plan_id=plan.id,
@@ -412,3 +427,31 @@ def process_plan_task(task_id: int) -> None:
             task.progress = 100
             task.error_message = str(exc)
             tasks.save(task)
+
+
+def _apply_profile_defaults(payload: dict, profile: dict) -> dict:
+    merged = dict(payload)
+    if not profile:
+        return merged
+
+    if merged.get("budget_range") in {None, "", "medium"} and profile.get("budget_level"):
+        merged["budget_range"] = profile["budget_level"]
+    if merged.get("transport_preference") in {None, "", "public_transit"} and profile.get("transport_preference"):
+        merged["transport_preference"] = profile["transport_preference"]
+    if merged.get("accommodation_preference") in {None, "", "comfort"} and profile.get("accommodation_preference"):
+        merged["accommodation_preference"] = profile["accommodation_preference"]
+
+    profile_notes = []
+    if profile.get("travel_style"):
+        profile_notes.append(f"travel_style={profile['travel_style']}")
+    if profile.get("pace_preference"):
+        profile_notes.append(f"pace_preference={profile['pace_preference']}")
+    if profile.get("risk_sensitivity"):
+        profile_notes.append(f"risk_sensitivity={profile['risk_sensitivity']}")
+    if profile.get("interest_tags"):
+        profile_notes.append(f"interest_tags={','.join(map(str, profile['interest_tags']))}")
+    if profile_notes:
+        notes = (merged.get("notes") or "").strip()
+        merged["notes"] = f"{notes}\nUser profile: {'; '.join(profile_notes)}".strip()
+
+    return merged

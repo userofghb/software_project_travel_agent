@@ -8,6 +8,16 @@ import { fetchMe, login, register } from "../api/auth";
 import { ApiError } from "../api/client";
 import type { RegisterRequest } from "../api/types";
 import { useAuthStore } from "../store/auth";
+import {
+  accommodationOptions,
+  budgetLevelOptions,
+  defaultProfile,
+  interestOptions,
+  paceOptions,
+  riskOptions,
+  transportOptions,
+  travelStyleOptions,
+} from "../utils/profileOptions";
 
 type RegisterFormValues = {
   username: string;
@@ -21,46 +31,6 @@ type RegisterFormValues = {
   accommodation_preference: string;
   risk_sensitivity: string;
   pace_preference: string;
-};
-
-const interestOptions = [
-  "历史人文",
-  "自然风光",
-  "本地美食",
-  "城市漫步",
-  "摄影打卡",
-  "亲子友好",
-  "博物馆",
-  "购物休闲",
-  "户外运动",
-];
-
-const selectOptions = {
-  style: [
-    { label: "休闲放松", value: "休闲放松" },
-    { label: "深度文化", value: "深度文化" },
-    { label: "美食探索", value: "美食探索" },
-    { label: "自然户外", value: "自然户外" },
-    { label: "高效打卡", value: "高效打卡" },
-  ],
-  transport: [
-    { label: "公共交通优先", value: "公共交通优先" },
-    { label: "步行友好", value: "步行友好" },
-    { label: "打车优先", value: "打车优先" },
-    { label: "自驾优先", value: "自驾优先" },
-  ],
-  accommodation: [
-    { label: "舒适酒店", value: "舒适酒店" },
-    { label: "精品民宿", value: "精品民宿" },
-    { label: "高端酒店", value: "高端酒店" },
-    { label: "经济实用", value: "经济实用" },
-  ],
-  pace: [
-    { label: "轻松慢游", value: "轻松慢游" },
-    { label: "张弛有度", value: "张弛有度" },
-    { label: "安排充实", value: "安排充实" },
-    { label: "高强度打卡", value: "高强度打卡" },
-  ],
 };
 
 function toPayload(values: RegisterFormValues): RegisterRequest {
@@ -92,13 +62,8 @@ export function RegisterPage() {
 
   const initialValues = useMemo<Partial<RegisterFormValues>>(
     () => ({
-      travel_style: "休闲放松",
-      budget_level: "中等预算",
-      interest_tags: ["本地美食", "城市漫步"],
-      transport_preference: "公共交通优先",
-      accommodation_preference: "舒适酒店",
-      risk_sensitivity: "中等敏感",
-      pace_preference: "张弛有度",
+      ...defaultProfile,
+      confirmPassword: "",
     }),
     [],
   );
@@ -150,7 +115,7 @@ export function RegisterPage() {
             创建你的旅行画像
           </Typography.Title>
           <Typography.Paragraph style={{ color: "rgba(255,255,255,.72)", fontSize: 16, maxWidth: 420 }}>
-            注册时填写偏好，Agent 会在生成路线、酒店、预算和天气规避方案时优先参考这些信息。
+            注册时填写的偏好会用于后续规划路线、酒店、预算和天气规避方案，让行程更贴合你的习惯。
           </Typography.Paragraph>
         </div>
 
@@ -159,10 +124,9 @@ export function RegisterPage() {
           current={1}
           items={[
             { title: "账号信息", description: "用于登录和保存方案" },
-            { title: "旅行画像", description: "用于个性化生成路线" },
+            { title: "旅行画像", description: "与个人画像页字段完全一致" },
             { title: "自动登录", description: "注册完成后进入工作台" },
           ]}
-          style={{ color: "#fff" }}
         />
       </section>
 
@@ -174,7 +138,7 @@ export function RegisterPage() {
                 <Typography.Title level={2} style={{ marginBottom: 8 }}>
                   注册账号
                 </Typography.Title>
-                <Typography.Text type="secondary">账号和画像会写入真实数据库，可直接用于后续规划。</Typography.Text>
+                <Typography.Text type="secondary">账号信息和旅行画像会安全保存，并用于后续规划。</Typography.Text>
               </div>
               <Button icon={<ArrowLeft size={16} />} onClick={() => navigate("/login", { state: location.state })}>
                 返回登录
@@ -240,20 +204,22 @@ export function RegisterPage() {
               <Row gutter={16}>
                 <Col xs={24} md={12}>
                   <Form.Item name="travel_style" label="旅行风格" rules={[{ required: true, message: "请选择旅行风格" }]}>
-                    <Select size="large" options={selectOptions.style} />
+                    <Select size="large" options={travelStyleOptions} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item name="pace_preference" label="行程节奏" rules={[{ required: true, message: "请选择行程节奏" }]}>
-                    <Select size="large" options={selectOptions.pace} />
+                    <Select size="large" options={paceOptions} />
                   </Form.Item>
                 </Col>
                 <Col span={24}>
                   <Form.Item name="budget_level" label="预算倾向" rules={[{ required: true, message: "请选择预算倾向" }]}>
                     <Radio.Group optionType="button" buttonStyle="solid">
-                      <Radio.Button value="经济实用">经济实用</Radio.Button>
-                      <Radio.Button value="中等预算">中等预算</Radio.Button>
-                      <Radio.Button value="高品质">高品质</Radio.Button>
+                      {budgetLevelOptions.map((item) => (
+                        <Radio.Button key={item.value} value={item.value}>
+                          {item.label}
+                        </Radio.Button>
+                      ))}
                     </Radio.Group>
                   </Form.Item>
                 </Col>
@@ -264,20 +230,22 @@ export function RegisterPage() {
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item name="transport_preference" label="交通偏好" rules={[{ required: true, message: "请选择交通偏好" }]}>
-                    <Select size="large" options={selectOptions.transport} />
+                    <Select size="large" options={transportOptions} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item name="accommodation_preference" label="住宿偏好" rules={[{ required: true, message: "请选择住宿偏好" }]}>
-                    <Select size="large" options={selectOptions.accommodation} />
+                    <Select size="large" options={accommodationOptions} />
                   </Form.Item>
                 </Col>
                 <Col span={24}>
                   <Form.Item name="risk_sensitivity" label="天气风险敏感度" rules={[{ required: true, message: "请选择天气风险敏感度" }]}>
                     <Radio.Group optionType="button" buttonStyle="solid">
-                      <Radio.Button value="不敏感">不敏感</Radio.Button>
-                      <Radio.Button value="中等敏感">中等敏感</Radio.Button>
-                      <Radio.Button value="高度敏感">高度敏感</Radio.Button>
+                      {riskOptions.map((item) => (
+                        <Radio.Button key={item.value} value={item.value}>
+                          {item.label}
+                        </Radio.Button>
+                      ))}
                     </Radio.Group>
                   </Form.Item>
                 </Col>

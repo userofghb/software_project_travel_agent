@@ -57,7 +57,7 @@ export function HomePage() {
   const createPlanMutation = useMutation({
     mutationFn: createPlan,
     onSuccess: (task) => {
-      message.success('已创建真实生成任务');
+      message.success('已开始生成旅行方案');
       navigate(`/tasks/${task.task_id}`);
     },
     onError: (err: Error) => {
@@ -192,7 +192,7 @@ export function HomePage() {
             <Space direction="vertical" size="large">
               <Space>
                 <Tag color="cyan" style={{ borderRadius: 12, padding: '4px 12px', border: 0 }}>v2.0 智能引擎</Tag>
-                <Tag color="blue" style={{ borderRadius: 12, padding: '4px 12px', border: 0 }}>Agent 工作流</Tag>
+                <Tag color="blue" style={{ borderRadius: 12, padding: '4px 12px', border: 0 }}>智能规划流程</Tag>
               </Space>
               <Title level={1} style={{ color: '#fff', margin: 0, fontSize: 42 }}>
                 让 AI 为你生成一份<br />
@@ -219,7 +219,7 @@ export function HomePage() {
             <Card variant="borderless" style={{ background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)', borderRadius: 20, color: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <Text style={{ color: 'rgba(255,255,255,0.6)' }}>行程预览示例</Text>
-                <Badge status="processing" text={<span style={{ color: '#fff' }}>Agent Ready</span>} />
+                <Badge status="processing" text={<span style={{ color: '#fff' }}>规划助手就绪</span>} />
               </div>
               <Title level={3} style={{ color: '#fff', marginTop: 0 }}>成都 3 日游</Title>
               <Space direction="vertical" style={{ width: '100%' }}>

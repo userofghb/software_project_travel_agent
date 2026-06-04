@@ -1,6 +1,7 @@
 import type { components } from "../types/generated/schema";
 
 export type LoginRequest = components["schemas"]["LoginRequest"];
+export type AccountUpdateRequest = components["schemas"]["AccountUpdateRequest"];
 export type RegisterRequest = components["schemas"]["RegisterRequest"];
 export type TokenResponse = components["schemas"]["TokenResponse"];
 export type UserMeResponse = components["schemas"]["UserMeResponse"];

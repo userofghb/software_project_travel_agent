@@ -46,20 +46,8 @@ export type MapPoint = {
   } | null;
 };
 
-export type MapRoute = {
-  day?: string | number | null;
-  from?: string | null;
-  to?: string | null;
-  mode?: string | null;
-  distance_m?: number | null;
-  duration_s?: number | null;
-  polyline?: string | null;
-  source?: string | null;
-};
-
 type PlanMapProps = {
   points?: MapPoint[];
-  routes?: MapRoute[];
   activeDate?: string;
   selectedNodeId?: string | null;
   onPointSelect?: (nodeId: string) => void;
@@ -75,7 +63,7 @@ function loadAmap(): Promise<AMapNamespace> {
     return Promise.resolve(window.AMap);
   }
   if (!AMAP_KEY) {
-    return Promise.reject(new Error("VITE_AMAP_JS_API_KEY is not configured"));
+    return Promise.reject(new Error("地图暂不可用"));
   }
   if (AMAP_SECURITY_CODE) {
     window._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_CODE };
@@ -90,10 +78,10 @@ function loadAmap(): Promise<AMapNamespace> {
         if (window.AMap) {
           resolve(window.AMap);
         } else {
-          reject(new Error("高德地图脚本已加载，但未发现 AMap 全局对象"));
+          reject(new Error("地图加载失败"));
         }
       };
-      script.onerror = () => reject(new Error("高德地图 JS API 加载失败"));
+      script.onerror = () => reject(new Error("地图加载失败"));
       document.head.appendChild(script);
     });
   }
@@ -134,7 +122,6 @@ export function PlanMap({ points = [], activeDate, selectedNodeId, onPointSelect
   const mapRef = useRef<AMapInstance | null>(null);
   const overlaysRef = useRef<AMapOverlay[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [error, setError] = useState("");
 
   const visiblePoints = useMemo(
     () =>
@@ -177,8 +164,7 @@ export function PlanMap({ points = [], activeDate, selectedNodeId, onPointSelect
         mapRef.current.resize?.();
         setStatus("ready");
       })
-      .catch((exc: Error) => {
-        setError(exc.message);
+      .catch(() => {
         setStatus("error");
       });
     return () => {
@@ -245,8 +231,8 @@ export function PlanMap({ points = [], activeDate, selectedNodeId, onPointSelect
         <Alert
           type="warning"
           showIcon
-          message="未配置高德地图前端 Key"
-          description="请在 frontend/.env 中设置 VITE_AMAP_JS_API_KEY。后端路线数据仍由 AMAP_API_KEY 控制。"
+          message="地图暂不可用"
+          description="暂时无法显示地图点位，行程内容不受影响。"
         />
       </div>
     );
@@ -270,7 +256,7 @@ export function PlanMap({ points = [], activeDate, selectedNodeId, onPointSelect
       )}
       {status === "error" && (
         <div style={{ position: "absolute", inset: 12 }}>
-          <Alert type="error" showIcon message="高德地图加载失败" description={error} />
+          <Alert type="error" showIcon message="地图加载失败" description="暂时无法显示地图点位，行程内容不受影响。" />
         </div>
       )}
       <Space size={8} style={{ position: "absolute", left: 12, top: 12, flexWrap: "wrap" }}>

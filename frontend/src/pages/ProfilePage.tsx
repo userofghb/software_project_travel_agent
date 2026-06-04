@@ -1,410 +1,351 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Typography, Card, Row, Col, Space, Tag, Divider, Slider, Switch, message, Button, Input } from 'antd';
-import { 
-  Radar, 
-  RadarChart, 
-  PolarGrid, 
-  PolarAngleAxis, 
-  ResponsiveContainer, 
-  PolarRadiusAxis 
-} from 'recharts';
-import { 
-  User, 
-  Settings, 
-  Save, 
-  Plus, 
-  X, 
-  Wallet, 
-  Bus, 
-  Home, 
-  SunSnow, 
-  Activity 
-} from 'lucide-react';
-import { motion } from 'framer-motion';
-import { fetchMyProfile, updateMyInterestTags, updateMyProfile } from '../api/profile';
-import { ApiError } from '../api/client';
-import type { UserProfileResponse, UserProfileUpdateRequest } from '../api/types';
+import { useEffect, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Alert, Button, Card, Col, Form, Input, Row, Select, Space, Spin, Tag, Typography, message } from "antd";
+import { Activity, Bus, Home, Mail, Save, ShieldCheck, SunSnow, User, Wallet } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+  Cell,
+  Pie,
+  PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
+
+import { updateMe } from "../api/auth";
+import { ApiError } from "../api/client";
+import { fetchMyProfile, updateMyProfile } from "../api/profile";
+import type { AccountUpdateRequest, UserProfileResponse, UserProfileUpdateRequest } from "../api/types";
+import { useAuthStore } from "../store/auth";
+import {
+  accommodationOptions,
+  budgetLevelOptions,
+  defaultProfile,
+  interestLabel,
+  interestOptions,
+  optionLabel,
+  optionWeight,
+  paceOptions,
+  riskOptions,
+  transportOptions,
+  travelStyleOptions,
+} from "../utils/profileOptions";
 
 const { Title, Text, Paragraph } = Typography;
 
-type ProfileFormState = {
-  travelStyle: string;
-  interestTags: string[];
-  budgetScore: number;
-  paceScore: number;
-  riskScore: number;
-  preferPublicTransit: boolean;
-  acceptLongWalk: boolean;
-  mustHaveBreakfast: boolean;
-  preferHomestay: boolean;
+type AccountFormValues = {
+  email?: string;
+  current_password?: string;
+  new_password?: string;
+  confirm_password?: string;
 };
 
-const DEFAULT_PAYLOAD: UserProfileUpdateRequest = {
-  travel_style: 'leisure',
-  budget_level: 'medium',
-  interest_tags: [],
-  transport_preference: 'public_transit',
-  accommodation_preference: 'comfort',
-  risk_sensitivity: 'medium',
-  pace_preference: 'balanced',
-};
+const chartColors = ["#13c2c2", "#4da3ff", "#22c55e", "#ffb020", "#eb2f96", "#7c3aed"];
 
-function mapBudgetLevelToScore(level: string): number {
-  const normalized = (level || '').toLowerCase();
-  if (normalized.includes('low') || normalized.includes('economy') || normalized.includes('budget')) return 20;
-  if (normalized.includes('high') || normalized.includes('luxury') || normalized.includes('premium')) return 90;
-  return 60;
-}
-
-function mapScoreToBudgetLevel(score: number): string {
-  if (score < 34) return 'low';
-  if (score < 67) return 'medium';
-  return 'high';
-}
-
-function mapPacePreferenceToScore(pace: string): number {
-  const normalized = (pace || '').toLowerCase();
-  if (normalized.includes('relaxed') || normalized.includes('leisure') || normalized.includes('slow')) return 20;
-  if (normalized.includes('intensive') || normalized.includes('fast') || normalized.includes('adventure')) return 90;
-  return 50;
-}
-
-function mapScoreToPacePreference(score: number): string {
-  if (score < 34) return 'relaxed';
-  if (score < 67) return 'balanced';
-  return 'intensive';
-}
-
-function mapRiskSensitivityToScore(risk: string): number {
-  const normalized = (risk || '').toLowerCase();
-  if (normalized.includes('low') || normalized.includes('insensitive')) return 20;
-  if (normalized.includes('high') || normalized.includes('sensitive')) return 90;
-  return 50;
-}
-
-function mapScoreToRiskSensitivity(score: number): string {
-  if (score < 34) return 'low';
-  if (score < 67) return 'medium';
-  return 'high';
-}
-
-function parseTransportPreference(value: string): { preferPublicTransit: boolean; acceptLongWalk: boolean } {
-  const normalized = (value || '').toLowerCase();
-  const preferPublicTransit = normalized.includes('public') || normalized.includes('transit') || normalized.includes('metro') || normalized.includes('bus');
-  const acceptLongWalk = normalized.includes('walk') || normalized.includes('nearby') || normalized.includes('foot');
-  return { preferPublicTransit, acceptLongWalk };
-}
-
-function buildTransportPreference(preferPublicTransit: boolean, acceptLongWalk: boolean): string {
-  if (preferPublicTransit && acceptLongWalk) return 'walk_or_nearby';
-  if (preferPublicTransit) return 'public_transit';
-  if (acceptLongWalk) return 'mixed_walk';
-  return 'private_transport';
-}
-
-function parseAccommodationPreference(value: string): { mustHaveBreakfast: boolean; preferHomestay: boolean } {
-  const normalized = (value || '').toLowerCase();
-  const mustHaveBreakfast = normalized.includes('breakfast');
-  const preferHomestay = normalized.includes('homestay');
-  return { mustHaveBreakfast, preferHomestay };
-}
-
-function buildAccommodationPreference(mustHaveBreakfast: boolean, preferHomestay: boolean): string {
-  if (mustHaveBreakfast && preferHomestay) return 'homestay_with_breakfast';
-  if (mustHaveBreakfast) return 'hotel_with_breakfast';
-  if (preferHomestay) return 'homestay';
-  return 'comfort';
-}
-
-function createFormState(profile: UserProfileUpdateRequest): ProfileFormState {
-  const transportFlags = parseTransportPreference(profile.transport_preference);
-  const accommodationFlags = parseAccommodationPreference(profile.accommodation_preference);
+function profileWithDefaults(profile?: Partial<UserProfileUpdateRequest> | null): UserProfileUpdateRequest {
   return {
-    travelStyle: profile.travel_style ?? 'leisure',
-    interestTags: profile.interest_tags ?? [],
-    budgetScore: mapBudgetLevelToScore(profile.budget_level ?? 'medium'),
-    paceScore: mapPacePreferenceToScore(profile.pace_preference ?? 'balanced'),
-    riskScore: mapRiskSensitivityToScore(profile.risk_sensitivity ?? 'medium'),
-    preferPublicTransit: transportFlags.preferPublicTransit,
-    acceptLongWalk: transportFlags.acceptLongWalk,
-    mustHaveBreakfast: accommodationFlags.mustHaveBreakfast,
-    preferHomestay: accommodationFlags.preferHomestay,
+    ...defaultProfile,
+    ...(profile ?? {}),
+    interest_tags: profile?.interest_tags ?? defaultProfile.interest_tags ?? [],
   };
 }
 
-function buildRadarData(formState: ProfileFormState) {
-  const text = formState.interestTags.join(',').toLowerCase();
-  const has = (keywords: string[]) => keywords.some((kw) => text.includes(kw));
-
-  const food = has(['food', 'eat', '美食', '小吃', '火锅']) ? 90 : 55;
-  const nature = has(['nature', 'mountain', 'hiking', '自然', '山']) ? 85 : 50;
-  const history = has(['history', 'museum', '文化', '历史', '古']) ? 85 : 50;
-  const shopping = has(['shopping', 'mall', '购物']) ? 80 : 40;
-  const relax = Math.max(15, Math.min(95, 100 - formState.paceScore + 20));
-  const extreme = Math.max(10, Math.min(95, formState.paceScore - 10));
-
+function buildRadarData(profile: UserProfileUpdateRequest) {
+  const interests = new Set(profile.interest_tags ?? []);
   return [
-    { subject: '美食探索', A: food, fullMark: 100 },
-    { subject: '自然风光', A: nature, fullMark: 100 },
-    { subject: '历史人文', A: history, fullMark: 100 },
-    { subject: '购物打卡', A: shopping, fullMark: 100 },
-    { subject: '休闲放松', A: relax, fullMark: 100 },
-    { subject: '极限运动', A: extreme, fullMark: 100 },
+    { subject: "预算", value: optionWeight(budgetLevelOptions, profile.budget_level), fullMark: 100 },
+    { subject: "节奏", value: optionWeight(paceOptions, profile.pace_preference), fullMark: 100 },
+    { subject: "天气规避", value: optionWeight(riskOptions, profile.risk_sensitivity), fullMark: 100 },
+    { subject: "交通确定性", value: optionWeight(transportOptions, profile.transport_preference), fullMark: 100 },
+    { subject: "住宿舒适度", value: optionWeight(accommodationOptions, profile.accommodation_preference), fullMark: 100 },
+    { subject: "兴趣密度", value: Math.min(95, Math.max(30, interests.size * 12 + 35)), fullMark: 100 },
   ];
 }
 
+function buildPieData(profile: UserProfileUpdateRequest) {
+  return [
+    { name: "旅行风格", value: 1, detail: optionLabel(travelStyleOptions, profile.travel_style), label: "偏好的旅行方式" },
+    { name: "预算倾向", value: 1, detail: optionLabel(budgetLevelOptions, profile.budget_level), label: "预算舒适区间" },
+    { name: "交通偏好", value: 1, detail: optionLabel(transportOptions, profile.transport_preference), label: "路上怎么安排" },
+    { name: "住宿偏好", value: 1, detail: optionLabel(accommodationOptions, profile.accommodation_preference), label: "住得是否顺手" },
+    { name: "行程节奏", value: 1, detail: optionLabel(paceOptions, profile.pace_preference), label: "每天安排密度" },
+    { name: "天气应对", value: 1, detail: optionLabel(riskOptions, profile.risk_sensitivity), label: "坏天气容忍度" },
+  ];
+}
+
+function apiErrorMessage(err: unknown, fallback: string) {
+  return err instanceof ApiError ? err.message : fallback;
+}
+
 export function ProfilePage() {
+  const [profileForm] = Form.useForm<UserProfileUpdateRequest>();
+  const [accountForm] = Form.useForm<AccountFormValues>();
+  const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
+  const setUser = useAuthStore((state) => state.setUser);
+
   const profileQuery = useQuery({
-    queryKey: ['profile', 'me'],
+    queryKey: ["profile", "me"],
     queryFn: fetchMyProfile,
   });
-  const [formState, setFormState] = useState<ProfileFormState>(createFormState(DEFAULT_PAYLOAD));
-  const [profileSummary, setProfileSummary] = useState('');
-  const [isEditingTags, setIsEditingTags] = useState(false);
-  const [newTagInput, setNewTagInput] = useState('');
 
-  const saveMutation = useMutation({
-    mutationFn: updateMyProfile,
-    onSuccess: (res) => {
-      setProfileSummary(res.profile_summary || '');
-      setFormState(createFormState(res.profile));
-      message.success('偏好画像保存成功，将在下次规划时生效');
-    },
-    onError: (err) => {
-      message.error(err instanceof ApiError ? err.message : '保存失败，请稍后重试');
-    },
-  });
-  const updateInterestTagsMutation = useMutation({
-    mutationFn: updateMyInterestTags,
-    onSuccess: (res) => {
-      setFormState((prev) => ({ ...prev, interestTags: res.interest_tags }));
-      setProfileSummary(res.profile_summary || '');
-      message.success('兴趣标签已更新');
-    },
-    onError: (err) => {
-      message.error(err instanceof ApiError ? err.message : '兴趣标签更新失败，请稍后重试');
-    },
-  });
+  const currentProfile = profileWithDefaults(profileQuery.data?.profile);
+  const watchedProfile = profileWithDefaults(Form.useWatch([], profileForm) ?? currentProfile);
 
   useEffect(() => {
-    const data = profileQuery.data as UserProfileResponse | undefined;
-    if (!data) return;
-    setFormState(createFormState(data.profile));
-    setProfileSummary(data.profile_summary || '');
-  }, [profileQuery.data]);
+    if (profileQuery.data) {
+      profileForm.setFieldsValue(profileWithDefaults(profileQuery.data.profile));
+    }
+  }, [profileForm, profileQuery.data]);
 
-  const radarData = useMemo(() => buildRadarData(formState), [formState]);
-  const interests = formState.interestTags.length > 0 ? formState.interestTags : ['暂无兴趣标签'];
+  useEffect(() => {
+    if (user) {
+      accountForm.setFieldsValue({ email: user.email });
+    }
+  }, [accountForm, user]);
 
-  const handleAddInterestTag = () => {
-    const tag = newTagInput.trim();
-    if (!tag) return;
-    if (formState.interestTags.includes(tag)) {
-      message.warning('该标签已存在');
+  const saveProfileMutation = useMutation({
+    mutationFn: updateMyProfile,
+    onSuccess: (res: UserProfileResponse) => {
+      profileForm.setFieldsValue(profileWithDefaults(res.profile));
+      queryClient.setQueryData(["profile", "me"], res);
+      message.success("旅行画像已保存，后续计划生成会读取这些偏好");
+    },
+    onError: (err) => {
+      message.error(apiErrorMessage(err, "画像保存失败，请稍后重试"));
+    },
+  });
+
+  const saveAccountMutation = useMutation({
+    mutationFn: updateMe,
+    onSuccess: (res) => {
+      setUser(res);
+      accountForm.setFieldsValue({ email: res.email, current_password: "", new_password: "", confirm_password: "" });
+      message.success("账号信息已更新");
+    },
+    onError: (err) => {
+      message.error(apiErrorMessage(err, "账号信息更新失败，请稍后重试"));
+    },
+  });
+
+  const radarData = useMemo(() => buildRadarData(watchedProfile), [watchedProfile]);
+  const pieData = useMemo(() => buildPieData(watchedProfile), [watchedProfile]);
+  const summary = profileQuery.data?.profile_summary || "暂无画像摘要，保存一次画像后会生成完整偏好描述。";
+
+  const handleSaveAccount = (values: AccountFormValues) => {
+    const payload: AccountUpdateRequest = {};
+    if (values.email && values.email !== user?.email) {
+      payload.email = values.email;
+    }
+    if (values.new_password) {
+      payload.current_password = values.current_password;
+      payload.new_password = values.new_password;
+    }
+    if (!payload.email && !payload.new_password) {
+      message.info("账号信息没有变化");
       return;
     }
-    const nextTags = [...formState.interestTags, tag];
-    setFormState((prev) => ({ ...prev, interestTags: nextTags }));
-    setNewTagInput('');
-    updateInterestTagsMutation.mutate({ interest_tags: nextTags });
-  };
-
-  const handleRemoveInterestTag = (tagToRemove: string) => {
-    const nextTags = formState.interestTags.filter((tag) => tag !== tagToRemove);
-    setFormState((prev) => ({ ...prev, interestTags: nextTags }));
-    updateInterestTagsMutation.mutate({ interest_tags: nextTags });
-  };
-
-  const handleSave = () => {
-    const payload: UserProfileUpdateRequest = {
-      travel_style: formState.travelStyle || 'leisure',
-      budget_level: mapScoreToBudgetLevel(formState.budgetScore),
-      interest_tags: formState.interestTags,
-      transport_preference: buildTransportPreference(formState.preferPublicTransit, formState.acceptLongWalk),
-      accommodation_preference: buildAccommodationPreference(formState.mustHaveBreakfast, formState.preferHomestay),
-      risk_sensitivity: mapScoreToRiskSensitivity(formState.riskScore),
-      pace_preference: mapScoreToPacePreference(formState.paceScore),
-    };
-    saveMutation.mutate(payload);
+    saveAccountMutation.mutate(payload);
   };
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', paddingBottom: 40 }}>
-      <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div style={{ maxWidth: 1240, margin: "0 auto", paddingBottom: 40 }}>
+      <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
         <div>
           <Title level={2} style={{ margin: 0 }}>
             <Space>
-              <User size={28} color="#eb2f96" />
-              旅行偏好画像
+              <User size={28} color="#13c2c2" />
+              账号与旅行画像
             </Space>
           </Title>
-          <Text type="secondary">您的偏好将作为 AI Agent 生成方案的核心基础</Text>
-          {profileQuery.isError ? <Text type="danger" style={{ display: 'block' }}>画像加载失败，当前显示默认值</Text> : null}
+          <Text type="secondary">这里维护的偏好会用于个性化生成旅行方案。</Text>
         </div>
-        <Button type="primary" icon={<Save size={16} />} size="large" style={{ borderRadius: 8 }} onClick={handleSave} loading={saveMutation.isPending}>
+        <Button
+          type="primary"
+          icon={<Save size={16} />}
+          size="large"
+          style={{ borderRadius: 8 }}
+          onClick={() => profileForm.submit()}
+          loading={saveProfileMutation.isPending}
+        >
           保存画像
         </Button>
       </div>
 
-      <Row gutter={24}>
-        {/* Left Column: Radar and Interests */}
-        <Col xs={24} md={10}>
-          <Card bordered={false} style={{ borderRadius: 16, marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <Title level={4} style={{ margin: 0 }}>兴趣雷达</Title>
-              <Tag color="magenta" style={{ borderRadius: 12, border: 0 }}>实时更新</Tag>
-            </div>
-            <div style={{ height: 300, width: '100%', marginBottom: 16 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="subject" tick={{ fill: '#8c8c8c', fontSize: 12 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                  <Radar name="User" dataKey="A" stroke="#eb2f96" fill="#eb2f96" fillOpacity={0.3} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-            
-            <Divider orientation="left" plain>核心兴趣标签</Divider>
-            <Space wrap>
-              {interests.map((tag) => (
-                <motion.div key={tag} whileHover={{ scale: 1.05 }}>
-                  <Tag 
-                    color="pink" 
-                    style={{ 
-                      padding: '4px 12px', 
-                      borderRadius: 16, 
-                      fontSize: 14, 
-                      border: '1px solid #ffadd2',
-                      background: '#fff0f6'
-                    }}
-                  >
-                    {tag}
-                    {isEditingTags && tag !== '暂无兴趣标签' ? (
-                      <X
-                        size={12}
-                        style={{ marginLeft: 6, cursor: 'pointer', verticalAlign: 'middle' }}
-                        onClick={() => handleRemoveInterestTag(tag)}
-                      />
-                    ) : null}
-                  </Tag>
-                </motion.div>
-              ))}
-              <Button type="dashed" size="small" style={{ borderRadius: 16 }} icon={<Settings size={12} />} onClick={() => setIsEditingTags((prev) => !prev)}>
-                {isEditingTags ? '完成' : '编辑'}
-              </Button>
-              {isEditingTags ? (
-                <Space size={8}>
-                  <Input
-                    size="small"
-                    placeholder="新增兴趣标签"
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    onPressEnter={handleAddInterestTag}
-                    style={{ width: 160, borderRadius: 16 }}
-                  />
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<Plus size={12} />}
-                    style={{ borderRadius: 16 }}
-                    onClick={handleAddInterestTag}
-                    loading={updateInterestTagsMutation.isPending}
-                  >
-                    新增
-                  </Button>
-                </Space>
-              ) : null}
-            </Space>
-          </Card>
+      {profileQuery.isError ? <Alert type="warning" showIcon message="画像加载失败，当前显示默认值" style={{ marginBottom: 16 }} /> : null}
 
-          <Card bordered={false} style={{ borderRadius: 16, background: 'linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%)' }}>
-            <Space align="start">
-              <BotIcon size={24} color="#52c41a" />
-              <div>
-                <Title level={5} style={{ margin: 0, color: '#237804' }}>系统画像摘要</Title>
-                <Paragraph style={{ margin: 0, marginTop: 8, color: '#389e0d' }}>
-                  {profileSummary || '暂无画像摘要'}
-                </Paragraph>
-              </div>
-            </Space>
-          </Card>
+      <Row gutter={[20, 20]}>
+        <Col xs={24} lg={8}>
+          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}>
+            <Card bordered={false} style={{ borderRadius: 8, marginBottom: 20 }}>
+              <Title level={4} style={{ marginTop: 0 }}>
+                <Space>
+                  <Mail size={18} />
+                  账号信息
+                </Space>
+              </Title>
+              <Form<AccountFormValues> form={accountForm} layout="vertical" requiredMark={false} onFinish={handleSaveAccount}>
+                <Form.Item name="email" label="邮箱" rules={[{ required: true, message: "请输入邮箱" }, { type: "email", message: "请输入有效邮箱" }]}>
+                  <Input placeholder="you@example.com" autoComplete="email" />
+                </Form.Item>
+                <Form.Item name="current_password" label="当前密码">
+                  <Input.Password placeholder="修改密码时必填" autoComplete="current-password" />
+                </Form.Item>
+                <Form.Item name="new_password" label="新密码" rules={[{ min: 6, message: "新密码至少 6 位" }]}>
+                  <Input.Password placeholder="不修改可留空" autoComplete="new-password" />
+                </Form.Item>
+                <Form.Item
+                  name="confirm_password"
+                  label="确认新密码"
+                  dependencies={["new_password"]}
+                  rules={[
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        const next = getFieldValue("new_password");
+                        if (!next || value === next) return Promise.resolve();
+                        return Promise.reject(new Error("两次输入的新密码不一致"));
+                      },
+                    }),
+                  ]}
+                >
+                  <Input.Password placeholder="再次输入新密码" autoComplete="new-password" />
+                </Form.Item>
+                <Button block icon={<ShieldCheck size={16} />} loading={saveAccountMutation.isPending} htmlType="submit">
+                  保存账号信息
+                </Button>
+              </Form>
+            </Card>
+          </motion.div>
+
+          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+            <Card bordered={false} style={{ borderRadius: 8 }}>
+              <Title level={4} style={{ marginTop: 0 }}>画像摘要</Title>
+              <Paragraph style={{ color: "#4b5563", marginBottom: 16 }}>{summary}</Paragraph>
+              <Space wrap>
+                {(watchedProfile.interest_tags ?? []).map((tag) => (
+                  <Tag key={tag} color="cyan" style={{ borderRadius: 8, padding: "4px 10px" }}>
+                    {interestLabel(tag)}
+                  </Tag>
+                ))}
+              </Space>
+            </Card>
+          </motion.div>
         </Col>
 
-        {/* Right Column: Detailed Preferences */}
-        <Col xs={24} md={14}>
-          <Card title="规划参数基准" bordered={false} style={{ borderRadius: 16 }}>
-            <Row gutter={[24, 32]}>
-              <Col span={12}>
-                <div style={{ marginBottom: 8 }}>
-                  <Text strong><Space><Wallet size={16} /> 预算敏感度</Space></Text>
-                </div>
-                <Slider value={formState.budgetScore} marks={{ 0: '穷游', 50: '适中', 100: '奢华' }} onChange={(value) => setFormState((prev) => ({ ...prev, budgetScore: typeof value === 'number' ? value : prev.budgetScore }))} />
-              </Col>
-              
-              <Col span={12}>
-                <div style={{ marginBottom: 8 }}>
-                  <Text strong><Space><Activity size={16} /> 行程节奏</Space></Text>
-                </div>
-                <Slider value={formState.paceScore} marks={{ 0: '轻松', 50: '适中', 100: '特种兵' }} onChange={(value) => setFormState((prev) => ({ ...prev, paceScore: typeof value === 'number' ? value : prev.paceScore }))} />
-              </Col>
+        <Col xs={24} lg={16}>
+          <Spin spinning={profileQuery.isLoading}>
+            <Card bordered={false} style={{ borderRadius: 8, marginBottom: 20 }}>
+              <Title level={4} style={{ marginTop: 0 }}>偏好设置</Title>
+              <Form<UserProfileUpdateRequest>
+                form={profileForm}
+                layout="vertical"
+                requiredMark={false}
+                initialValues={currentProfile}
+                onFinish={(values) => saveProfileMutation.mutate(profileWithDefaults(values))}
+              >
+                <Row gutter={16}>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="travel_style" label="旅行风格" rules={[{ required: true, message: "请选择旅行风格" }]}>
+                      <Select options={travelStyleOptions} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="budget_level" label="预算倾向" rules={[{ required: true, message: "请选择预算倾向" }]}>
+                      <Select options={budgetLevelOptions} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24}>
+                    <Form.Item name="interest_tags" label="兴趣标签">
+                      <Select mode="tags" options={interestOptions} tokenSeparators={[",", "，"]} placeholder="选择或输入兴趣标签" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="transport_preference" label="交通偏好" rules={[{ required: true, message: "请选择交通偏好" }]}>
+                      <Select options={transportOptions} suffixIcon={<Bus size={16} />} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="accommodation_preference" label="住宿偏好" rules={[{ required: true, message: "请选择住宿偏好" }]}>
+                      <Select options={accommodationOptions} suffixIcon={<Home size={16} />} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="pace_preference" label="行程节奏" rules={[{ required: true, message: "请选择行程节奏" }]}>
+                      <Select options={paceOptions} suffixIcon={<Activity size={16} />} />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="risk_sensitivity" label="天气风险敏感度" rules={[{ required: true, message: "请选择天气风险敏感度" }]}>
+                      <Select options={riskOptions} suffixIcon={<SunSnow size={16} />} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Form>
+            </Card>
+          </Spin>
 
-              <Col span={12}>
-                <div style={{ marginBottom: 8 }}>
-                  <Text strong><Space><SunSnow size={16} /> 天气敏感度</Space></Text>
+          <Row gutter={[20, 20]}>
+            <Col xs={24} xl={12}>
+              <Card bordered={false} style={{ borderRadius: 8, height: "100%" }}>
+                <Title level={4} style={{ marginTop: 0 }}>偏好雷达</Title>
+                <div style={{ height: 310 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart data={radarData}>
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: "#637083", fontSize: 12 }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                      <Radar dataKey="value" stroke="#13c2c2" fill="#13c2c2" fillOpacity={0.28} />
+                    </RadarChart>
+                  </ResponsiveContainer>
                 </div>
-                <Slider value={formState.riskScore} marks={{ 0: '无所谓', 50: '一般', 100: '高度敏感' }} onChange={(value) => setFormState((prev) => ({ ...prev, riskScore: typeof value === 'number' ? value : prev.riskScore }))} />
-                <Text type="secondary" style={{ fontSize: 12 }}>分数越高，AI 越倾向于避开恶劣天气安排室外活动。</Text>
-              </Col>
-            </Row>
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card bordered={false} style={{ borderRadius: 8, height: "100%" }}>
+                <Title level={4} style={{ marginTop: 0 }}>偏好速览</Title>
+                <div style={{ height: 250 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={pieData} innerRadius={56} outerRadius={82} paddingAngle={4} dataKey="value">
+                        {pieData.map((_, index) => (
+                          <Cell key={index} fill={chartColors[index % chartColors.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(_, __, item) => {
+                          const payload = item.payload as { detail: string; name: string };
+                          return [payload.detail, payload.name];
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <Space wrap>
+                  {pieData.map((item, index) => (
+                    <Tag key={item.name} color="default" style={{ borderRadius: 8, borderColor: chartColors[index], color: "#172033" }}>
+                      {item.label}: {item.detail}
+                    </Tag>
+                  ))}
+                </Space>
+              </Card>
+            </Col>
+          </Row>
 
-            <Divider dashed />
-
-            <Row gutter={[24, 24]}>
-              <Col span={12}>
-                <Card size="small" type="inner" title={<Space><Bus size={16}/> 交通偏好</Space>} style={{ background: '#fafafa' }}>
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>优先公共交通</Text>
-                      <Switch checked={formState.preferPublicTransit} onChange={(checked) => setFormState((prev) => ({ ...prev, preferPublicTransit: checked }))} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>接受长时间步行</Text>
-                      <Switch checked={formState.acceptLongWalk} onChange={(checked) => setFormState((prev) => ({ ...prev, acceptLongWalk: checked }))} />
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-              
-              <Col span={12}>
-                <Card size="small" type="inner" title={<Space><Home size={16}/> 住宿偏好</Space>} style={{ background: '#fafafa' }}>
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>必须含早餐</Text>
-                      <Switch checked={formState.mustHaveBreakfast} onChange={(checked) => setFormState((prev) => ({ ...prev, mustHaveBreakfast: checked }))} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Text>偏好特色民宿</Text>
-                      <Switch checked={formState.preferHomestay} onChange={(checked) => setFormState((prev) => ({ ...prev, preferHomestay: checked }))} />
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-            </Row>
+          <Card bordered={false} style={{ borderRadius: 8, marginTop: 20, background: "#f6f8fb" }}>
+            <Space wrap size={[12, 12]}>
+              <Tag icon={<Wallet size={14} />} color="green">预算: {optionLabel(budgetLevelOptions, watchedProfile.budget_level)}</Tag>
+              <Tag icon={<Bus size={14} />} color="blue">交通: {optionLabel(transportOptions, watchedProfile.transport_preference)}</Tag>
+              <Tag icon={<Home size={14} />} color="purple">住宿: {optionLabel(accommodationOptions, watchedProfile.accommodation_preference)}</Tag>
+              <Tag icon={<Activity size={14} />} color="orange">节奏: {optionLabel(paceOptions, watchedProfile.pace_preference)}</Tag>
+              <Tag icon={<SunSnow size={14} />} color="red">天气: {optionLabel(riskOptions, watchedProfile.risk_sensitivity)}</Tag>
+            </Space>
           </Card>
         </Col>
       </Row>
     </div>
   );
 }
-
-const BotIcon = ({ size, color }: { size: number, color: string }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="11" width="18" height="10" rx="2" />
-    <circle cx="12" cy="5" r="2" />
-    <path d="M12 7v4" />
-    <line x1="8" y1="16" x2="8" y2="16" />
-    <line x1="16" y1="16" x2="16" y2="16" />
-  </svg>
-);

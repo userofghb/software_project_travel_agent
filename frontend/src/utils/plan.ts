@@ -31,16 +31,6 @@ type PlanContent = {
         lat?: number | string | null;
       } | null;
     }>;
-    routes?: Array<{
-      day?: string | number | null;
-      from?: string | null;
-      to?: string | null;
-      mode?: string | null;
-      distance_m?: number | null;
-      duration_s?: number | null;
-      polyline?: string | null;
-      source?: string | null;
-    }>;
   };
   budget?: {
     range?: string;
