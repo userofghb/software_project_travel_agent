@@ -7,6 +7,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --coverage --ci --coverageReporters=text --coverageReporters=json-summary",
     "generate:spec": "python ../backend/scripts/export_openapi.py ./src/types/generated/openapi.json",
     "generate:types": "npm run generate:spec && openapi-typescript ./src/types/generated/openapi.json -o ./src/types/generated/schema.ts"
   },
@@ -24,11 +28,19 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.15.17",
     "@types/react": "^18.3.22",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.9.0",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
     "openapi-typescript": "^7.7.0",
+    "ts-jest": "^29.4.11",
     "typescript": "^5.8.3",
     "vite": "^5.4.19"
   }
