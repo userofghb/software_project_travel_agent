@@ -14,10 +14,14 @@ def run_hotel_agent(state: PlanningState) -> dict[str, Any]:
         )
         errors = state.errors
     except Exception as exc:
+        # Use .get() so a missing key in state.request doesn't cause a
+        # second KeyError inside the fallback — the original exception is
+        # already captured in errors.
+        city = state.request.get("city", "Unknown")
         hotels = {
-            "name": f"{state.request['city']} Standard Hotel",
+            "name": f"{city} Standard Hotel",
             "price_per_night": 300,
-            "location": f"{state.request['city']} city center",
+            "location": f"{city} city center",
             "rating": None,
         }
         errors = [*state.errors, f"hotel provider failed: {exc}"]

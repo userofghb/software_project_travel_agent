@@ -37,8 +37,8 @@ export function HomePage() {
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [budgetRange, setBudgetRange] = useState('medium');
   const [transportPreference, setTransportPreference] = useState('public_transit');
-  const [originEdited, setOriginEdited] = useState(false);
-  const [destinationEdited, setDestinationEdited] = useState(false);
+  const [budgetEdited, setBudgetEdited] = useState(false);
+  const [transportEdited, setTransportEdited] = useState(false);
   const [parsed, setParsed] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
 
@@ -85,18 +85,20 @@ export function HomePage() {
     setIsParsing(true);
     try {
       const payload = await parsePlan(demandText);
-      const origin = resolveOrigin(payload.origin, originInput, originEdited);
-      const destination = resolveDestination(payload.city, destinationInput, destinationEdited);
-      setOriginInput(origin);
-      setDestinationInput(destination);
-      setOriginEdited(false);
-      setDestinationEdited(false);
+      const origin = normalizeOrigin(originInput);
+      const destination = normalizeDestination(destinationInput);
+      const startDate = dateRange?.[0]?.format('YYYY-MM-DD') ?? '';
+      const endDate = dateRange?.[1]?.format('YYYY-MM-DD') ?? '';
+      const resolvedBudget = budgetEdited ? budgetRange : payload.budget_range || 'medium';
+      const resolvedTransport = transportEdited ? transportPreference : payload.transport_preference || 'public_transit';
+      setBudgetRange(resolvedBudget);
+      setTransportPreference(resolvedTransport);
       setParsedData({
         origin,
-        destination,
-        departureTime: formatDepartureTime(payload.start_date),
-        duration: payload.duration || formatDuration(payload.start_date, payload.end_date),
-        budget: mapBudgetLabel(payload.budget_range),
+        destination: destination || '待确认',
+        departureTime: startDate ? formatDepartureTime(startDate) : '待确认',
+        duration: startDate && endDate ? formatDuration(startDate, endDate) : '待确认',
+        budget: mapBudgetLabel(resolvedBudget),
       });
       setParsed(true);
       message.success('需求解析成功');
@@ -108,31 +110,34 @@ export function HomePage() {
   };
 
   const handleGenerate = async () => {
-    if (!demandText.trim() && !destinationInput.trim()) {
-      message.warning('请至少填写目的地或补充描述');
+    const origin = normalizeOrigin(originInput);
+    const destination = normalizeDestination(destinationInput);
+    if (!destination) {
+      message.warning('请填写明确的目的地');
+      return;
+    }
+    if (!dateRange) {
+      message.warning('请选择游玩日期');
       return;
     }
     try {
-      const payload = demandText.trim() ? await parsePlan(demandText) : buildManualPayload(originInput, destinationInput, dateRange, budgetRange, transportPreference);
-      const origin = resolveOrigin(payload.origin, originInput, originEdited);
-      const destination = resolveDestination(payload.city, destinationInput, destinationEdited);
-      const startDate = dateRange?.[0]?.format('YYYY-MM-DD') || payload.start_date;
-      const endDate = dateRange?.[1]?.format('YYYY-MM-DD') || payload.end_date;
+      const parsedPayload = demandText.trim() ? await parsePlan(demandText) : null;
+      const payload = buildManualPayload(origin, destination, dateRange, budgetRange, transportPreference);
+      const startDate = payload.start_date;
+      const endDate = payload.end_date;
+      const resolvedBudget = budgetEdited ? budgetRange : (parsedPayload?.budget_range || budgetRange || payload.budget_range);
+      const resolvedTransport = transportEdited ? transportPreference : (parsedPayload?.transport_preference || transportPreference || payload.transport_preference);
       const payloadWithRoute = {
         ...payload,
-        origin,
-        city: destination,
-        start_date: startDate,
-        end_date: endDate,
-        budget_range: budgetRange || payload.budget_range,
-        transport_preference: transportPreference || payload.transport_preference,
-        title: replaceTitleCity(payload.title, payload.city, destination),
-        notes: [payload.notes, demandText].filter(Boolean).join('\n'),
+        budget_range: resolvedBudget,
+        transport_preference: resolvedTransport,
+        accommodation_preference: parsedPayload?.accommodation_preference || payload.accommodation_preference,
+        title: buildPlanTitle(destination, startDate, endDate),
+        notes: demandText.trim(),
+        duration: formatDuration(startDate, endDate),
       };
       setOriginInput(origin);
       setDestinationInput(destination);
-      setOriginEdited(false);
-      setDestinationEdited(false);
       setParsedData({
         origin,
         destination,
@@ -140,9 +145,9 @@ export function HomePage() {
         duration: formatDuration(startDate, endDate),
         budget: mapBudgetLabel(payloadWithRoute.budget_range),
       });
-      setDateRange([dayjs(payload.start_date), dayjs(payload.end_date)]);
-      setBudgetRange(payload.budget_range || 'medium');
-      setTransportPreference(payload.transport_preference || 'public_transit');
+      setDateRange([dayjs(startDate), dayjs(endDate)]);
+      setBudgetRange(resolvedBudget || 'medium');
+      setTransportPreference(resolvedTransport || 'public_transit');
       setParsed(true);
       createPlanMutation.mutate(payloadWithRoute);
     } catch (err) {
@@ -154,16 +159,17 @@ export function HomePage() {
     setDemandText(template);
     setParsed(false);
     setDestinationInput('');
-    setDestinationEdited(false);
+    setBudgetEdited(false);
+    setTransportEdited(false);
   };
 
   const templates = [
-    { title: '周末轻旅行', desc: '周边城市 2 日游', icon: <Coffee size={20} color="#13c2c2" />, text: '周末两天，预算2000，想轻松一点。' },
-    { title: '美食深度游', desc: '吃货专属路线', icon: <Activity size={20} color="#fa8c16" />, text: '去成都3天，预算3000，优先安排地道美食。' },
-    { title: '亲子舒适游', desc: '适合带娃，节奏宽松', icon: <Users size={20} color="#eb2f96" />, text: '一家三口去三亚，行程不要太赶。' },
-    { title: '高效打卡游', desc: '有限时间看更多', icon: <Zap size={20} color="#722ed1" />, text: '北京周末两日，想打卡核心景点。' },
-    { title: '人文城市游', desc: '历史文化体验', icon: <Landmark size={20} color="#2f54eb" />, text: '西安4日，重点历史文化路线。' },
-    { title: '自然放松游', desc: '山水疗愈', icon: <Trees size={20} color="#52c41a" />, text: '大理或桂林，亲近自然。' },
+    { title: '轻松慢游', desc: '节奏宽松，减少排队', icon: <Coffee size={20} color="#13c2c2" />, text: '预算2000，想轻松一点，少排队，多留休息时间。' },
+    { title: '美食深度', desc: '地道小吃和餐馆', icon: <Activity size={20} color="#fa8c16" />, text: '预算3000，优先安排地道美食和特色小吃。' },
+    { title: '亲子舒适', desc: '适合带娃，少折腾', icon: <Users size={20} color="#eb2f96" />, text: '一家三口出行，行程不要太赶，多安排室内和亲子友好项目。' },
+    { title: '高效打卡', desc: '核心景点优先', icon: <Zap size={20} color="#722ed1" />, text: '想打卡核心景点，路线尽量顺路，不要走回头路。' },
+    { title: '人文城市', desc: '历史文化体验', icon: <Landmark size={20} color="#2f54eb" />, text: '重点安排历史文化、博物馆和城市街区体验。' },
+    { title: '自然放松', desc: '山水和慢节奏', icon: <Trees size={20} color="#52c41a" />, text: '亲近自然，避开太商业化的景点，节奏放松。' },
   ];
 
   return (
@@ -250,7 +256,6 @@ export function HomePage() {
                   value={originInput}
                   onChange={(e) => {
                     setOriginInput(e.target.value);
-                    setOriginEdited(true);
                   }}
                   prefix={<MapPin size={16} color="#13c2c2" />}
                   addonBefore="出发地"
@@ -262,7 +267,6 @@ export function HomePage() {
                   value={destinationInput}
                   onChange={(e) => {
                     setDestinationInput(e.target.value);
-                    setDestinationEdited(true);
                   }}
                   prefix={<MapPin size={16} color="#1890ff" />}
                   addonBefore="目的地"
@@ -280,7 +284,10 @@ export function HomePage() {
               <Col xs={12} sm={6}>
                 <Select
                   value={budgetRange}
-                  onChange={setBudgetRange}
+                  onChange={(value) => {
+                    setBudgetRange(value);
+                    setBudgetEdited(true);
+                  }}
                   style={{ width: '100%' }}
                   options={[
                     { label: '经济预算', value: 'low' },
@@ -292,7 +299,10 @@ export function HomePage() {
               <Col xs={12} sm={6}>
                 <Select
                   value={transportPreference}
-                  onChange={setTransportPreference}
+                  onChange={(value) => {
+                    setTransportPreference(value);
+                    setTransportEdited(true);
+                  }}
                   style={{ width: '100%' }}
                   options={[
                     { label: '公交地铁', value: 'public_transit' },
@@ -496,22 +506,16 @@ function mapBudgetLabel(range: string): string {
   return '中等预算';
 }
 
-function resolveOrigin(parsedOrigin: string | null | undefined, currentOrigin: string, userEdited: boolean): string {
-  if (userEdited && currentOrigin.trim()) return currentOrigin.trim();
-  return (parsedOrigin || currentOrigin || DEFAULT_ORIGIN).trim() || DEFAULT_ORIGIN;
+function normalizeOrigin(origin: string): string {
+  return origin.trim() || DEFAULT_ORIGIN;
 }
 
-function resolveDestination(parsedDestination: string | null | undefined, currentDestination: string, userEdited: boolean): string {
-  if (userEdited && currentDestination.trim()) return currentDestination.trim();
-  return (parsedDestination || currentDestination || '').trim() || parsedDestination || '';
+function normalizeDestination(destination: string): string {
+  return destination.trim();
 }
 
-function replaceTitleCity(title: string, parsedDestination: string, destination: string): string {
-  if (!destination) return title;
-  if (parsedDestination && title.includes(parsedDestination)) {
-    return title.replace(parsedDestination, destination);
-  }
-  return `${destination}旅行方案`;
+function buildPlanTitle(destination: string, startDate: string, endDate: string): string {
+  return `${destination}${formatDuration(startDate, endDate)}旅行方案`;
 }
 
 function buildManualPayload(

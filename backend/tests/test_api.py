@@ -399,3 +399,18 @@ def test_plan_permissions(client):
 
     forbidden = client.get(f"/api/plans/{plan_id}", headers=bob_headers)
     assert forbidden.status_code == 404
+
+
+def test_parse_plan_text_treats_freeform_text_as_preferences(client):
+    response = client.post(
+        "/api/plans/parse",
+        json={"text": "预算10000，酒店含早，少走路，优先安排地道美食和博物馆。"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["city"] == "目的地待确认"
+    assert data["budget_range"] == "high"
+    assert data["transport_preference"] == "private_transport"
+    assert data["accommodation_preference"] == "hotel_with_breakfast"
+    assert data["title"] == "目的地待确认3日旅行方案"

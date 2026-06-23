@@ -1741,7 +1741,7 @@ def _mock_restaurant(city: str, anchor_location: dict[str, float] | None, index:
     offset = 0.002 + index * 0.0003
     names = {
         "breakfast": "顺路早餐铺",
-        "lunch": "本地家常菜馆",
+        "lunch": "顺路午餐餐馆",
         "dinner": "城市晚餐小馆",
     }
     name = names.get(meal_kind, "街区简餐店")
@@ -1778,7 +1778,7 @@ def _build_intercity_trip(origin: str, city: str, budget_range: str) -> dict[str
 
 def _build_intercity_activity(trip: dict[str, Any], direction: str) -> dict[str, Any]:
     is_outbound = direction == "outbound"
-    start = 6 * 60 + 30 if is_outbound else 19 * 60
+    start = 8 * 60 if is_outbound else 19 * 60
     end = start + int(trip["duration_minutes"])
     origin = trip["origin"] if is_outbound else trip["city"]
     destination = trip["city"] if is_outbound else trip["origin"]
@@ -2853,11 +2853,14 @@ def _repair_node_times(
         None,
     )
     return_duration = _node_duration_minutes(return_node) if return_node else 0
-    return_start = (
-        _time_text_minutes(str(return_node.get("start_time") or return_node.get("time") or ""))
-        if return_node
-        else latest_end
-    )
+    if return_node:
+        parsed_return_end = _time_end_minutes(str(return_node.get("time") or "")) or _time_text_minutes(
+            str(return_node.get("end_time") or "")
+        )
+        return_end = min(latest_end, parsed_return_end or latest_end)
+        return_start = max(min_start, return_end - return_duration)
+    else:
+        return_start = latest_end
     if not return_node:
         latest_end = min(latest_end, max(available_end, min_start + 60))
     hotel_node = next((node for node in nodes if node.get("type") == "hotel"), None)
@@ -2892,6 +2895,7 @@ def _repair_node_times(
             start = current_start
         elif node.get("type") == "intercity_transport" and node.get("direction") == "return":
             start = return_start
+            duration = min(duration, max(30, latest_end - start))
         elif meal_kind in {"breakfast", "lunch", "dinner"}:
             latest_meal_start = _meal_latest_start(meal_kind)
             if cursor > latest_meal_start:
@@ -2933,7 +2937,7 @@ def _repair_node_times(
         node["end_time"] = _format_minutes(end)
         node["time"] = f"{node['start_time']}-{node['end_time']}"
         node["duration"] = _format_duration_minutes(duration)
-        node["period"] = _period_from_time(node["start_time"])
+        node["period"] = "lunch" if meal_kind == "lunch" else _period_from_time(node["start_time"])
         repaired.append(node)
         cursor = end + 5
     return repaired

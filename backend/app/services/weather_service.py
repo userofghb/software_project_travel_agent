@@ -7,7 +7,11 @@ class WeatherService:
         warnings: list[WeatherWarningItem] = []
         for item in weather_info:
             condition = item.get("condition", "")
-            risk_score = item.get("risk_score", 0)
+            # dict.get() returns the default only when the key is missing;
+            # if the key exists with value None, it returns None — guard against that.
+            risk_score = item.get("risk_score")
+            if risk_score is None:
+                risk_score = 0
             normalized = {
                 "moderate_rain": "moderate_rain",
                 "heavy_rain": "heavy_rain",

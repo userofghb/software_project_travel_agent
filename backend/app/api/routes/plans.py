@@ -22,6 +22,45 @@ from io import BytesIO
 router = APIRouter()
 
 
+UNSPECIFIED_CITY = "目的地待确认"
+KNOWN_CITIES = (
+    "北京",
+    "上海",
+    "广州",
+    "深圳",
+    "成都",
+    "重庆",
+    "杭州",
+    "南京",
+    "苏州",
+    "西安",
+    "武汉",
+    "长沙",
+    "厦门",
+    "青岛",
+    "大理",
+    "桂林",
+    "三亚",
+    "天津",
+    "香港",
+    "澳门",
+    "台北",
+    "昆明",
+    "丽江",
+    "拉萨",
+    "哈尔滨",
+    "沈阳",
+    "郑州",
+    "合肥",
+    "宁波",
+    "无锡",
+    "乌鲁木齐",
+)
+PLACE_PATTERN = r"[\u4e00-\u9fa5A-Za-z0-9]{2,20}?"
+PLACE_END_PATTERN = r"(?=玩|旅行|旅游|游|出差|自由行|[一二两三四五六七八九十\d]+\s*[日天]|预算|，|,|。|\.|\s|$)"
+CN_NUMBER_MAP = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
 class ParseRequest(BaseModel):
     text: str
 
@@ -33,86 +72,196 @@ def parse_plan_text(payload: ParseRequest) -> TripPlanCreateRequest:
     Simple heuristics to extract origin, destination, dates, days and budget.
     If no explicit start date is found, default to today.
     """
-    text = (payload.text or "").strip()
+    text = re.sub(r"\s+", " ", (payload.text or "").strip())
+
+    def clean_place(value: str | None) -> str | None:
+        if not value:
+            return None
+        cleaned = value.strip(" ，,。.!！?？、")
+        cleaned = re.sub(r"^(我想|想|计划|打算|准备|一家人|一家三口|和朋友|周末|五一|国庆|春节)", "", cleaned)
+        cleaned = re.sub(r"(出发|启程|前往|旅游|旅行|游玩|自由行|游)$", "", cleaned)
+        return cleaned or None
+
+    def route_match(t: str) -> tuple[str | None, str | None]:
+        patterns = [
+            rf"(?:从|自)(?P<origin>{PLACE_PATTERN})(?:出发|启程)?(?:去|到|前往)(?P<city>{PLACE_PATTERN}){PLACE_END_PATTERN}",
+            rf"(?P<origin>{PLACE_PATTERN})(?:出发|启程)(?:去|到|前往)(?P<city>{PLACE_PATTERN}){PLACE_END_PATTERN}",
+            rf"(?P<origin>{PLACE_PATTERN})(?:去|到|前往)(?P<city>{PLACE_PATTERN}){PLACE_END_PATTERN}",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, t)
+            if match:
+                return clean_place(match.group("origin")), clean_place(match.group("city"))
+        return None, None
 
     def extract_origin(t: str) -> str | None:
-        m = re.search(r"从([\u4e00-\u9fa5A-Za-z0-9]{2,10})到([\u4e00-\u9fa5A-Za-z0-9]{2,10})", t)
-        if m:
-            return m.group(1)
-        m = re.search(r"(?:从|自)([\u4e00-\u9fa5A-Za-z0-9]{2,10})(?:出发|启程|前往)", t)
-        if m:
-            return m.group(1)
-        m = re.search(r"([\u4e00-\u9fa5A-Za-z0-9]{2,10})出发(?:去|到)?", t)
-        return m.group(1) if m else None
+        origin, _ = route_match(t)
+        if origin:
+            return origin
+        match = re.search(rf"(?:从|自)?(?P<origin>{PLACE_PATTERN})(?:出发|启程)", t)
+        return clean_place(match.group("origin")) if match else None
 
     def extract_city(t: str, origin: str | None) -> str:
-        m = re.search(r"(?:去|到)([\u4e00-\u9fa5A-Za-z0-9]{2,10})(?:玩|旅行|旅游|游|出差|，|,|\s|$)", t)
-        if m:
-            return m.group(1)
-        known = ['北京','上海','广州','深圳','成都','重庆','杭州','南京','苏州','西安','武汉','长沙','厦门','青岛','大理','桂林','三亚']
-        for c in known:
-            if c in t and c != origin:
-                return c
-        for c in known:
-            if c in t:
-                return c
-        return '成都'
+        _, route_city = route_match(t)
+        if route_city and route_city != origin:
+            return route_city
+
+        mentioned = sorted(
+            ((t.find(city), city) for city in KNOWN_CITIES if city in t),
+            key=lambda item: item[0],
+        )
+        for _, city in mentioned:
+            if city != origin:
+                return city
+        if mentioned:
+            return mentioned[0][1]
+
+        patterns = [
+            rf"(?:去|到|前往)(?P<city>{PLACE_PATTERN}){PLACE_END_PATTERN}",
+            rf"(?P<city>{PLACE_PATTERN})(?:[一二两三四五六七八九十\d]+\s*[日天](?:游|行程|旅行|旅游)?|周末(?:游|旅行|旅游)?|自由行|亲子游|美食游|深度游)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, t)
+            city = clean_place(match.group("city")) if match else None
+            if city and city != origin:
+                return city
+        return UNSPECIFIED_CITY
+
+    def parse_count(raw: str) -> int | None:
+        if raw.isdigit():
+            return int(raw)
+        if raw == "十":
+            return 10
+        if "十" in raw:
+            left, _, right = raw.partition("十")
+            tens = CN_NUMBER_MAP.get(left, 1 if not left else 0)
+            ones = CN_NUMBER_MAP.get(right, 0) if right else 0
+            value = tens * 10 + ones
+            return value or None
+        return CN_NUMBER_MAP.get(raw)
+
+    def clamp_days(value: int | None) -> int:
+        return max(1, min(10, value or 3))
 
     def extract_days(t: str) -> int:
-        # First try more specific patterns for duration (not date)
-        # Match patterns like "去X天", "玩X天", "X天的行程", "X天游", "X日游", "X日游玩"
-        m = re.search(r"(?:去|玩|行程|游|游玩)(\d+)\s*[日天]", t)
-        if m:
-            return max(1, min(10, int(m.group(1))))
-
-        # Match patterns like "X天" or "X日" but NOT "X月X日" (date)
-        # Use negative lookbehind to exclude date patterns like "6月1日"
-        m = re.search(r'(?<!月)(\d+)\s*[日天](?!出发|去|玩)', t)
-        if m:
-            return max(1, min(10, int(m.group(1))))
-
-        # Try Chinese numerals with duration context
-        cn_map = {'一':1,'二':2,'两':2,'三':3,'四':4,'五':5,'六':6,'七':7}
-        m = re.search(r"(?:去|玩|行程|游)([一二两三四五六七])\s*[日天]", t)
-        if m:
-            return cn_map.get(m.group(1), 3)
-
-        # Fallback: try any Chinese numeral followed by 日天 (but not in date context)
-        m = re.search(r'(?<!月)([一二两三四五六七])\s*[日天]', t)
-        return cn_map.get(m.group(1), 3) if m else 3
-
-    def extract_start_date(t: str):
-        m = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", t)
-        if m:
-            y,mo,d = map(int, m.groups())
+        range_match = re.search(
+            r"(?:(\d{4})[/-])?(\d{1,2})月?(\d{1,2})[日号]?\s*(?:到|至|-|~|—)\s*(?:(\d{1,2})月)?(\d{1,2})[日号]?",
+            t,
+        )
+        if range_match:
+            year_text, start_month, start_day, end_month, end_day = range_match.groups()
+            year = int(year_text) if year_text else date.today().year
+            start_month_int = int(start_month)
+            end_month_int = int(end_month or start_month)
             try:
-                return date(y,mo,d)
-            except Exception:
+                start_value = date(year, start_month_int, int(start_day))
+                end_value = date(year, end_month_int, int(end_day))
+                if end_value >= start_value:
+                    return clamp_days((end_value - start_value).days + 1)
+            except ValueError:
                 pass
-        m = re.search(r"(\d{1,2})月(\d{1,2})日", t)
-        if m:
-            mo,d = map(int, m.groups())
-            y = date.today().year
+
+        for pattern in (
+            r"(?<![月/\-.])(\d{1,2})\s*[日天](?:游|行程|旅行|旅游|游玩)?",
+            r"(?<!月)([一二两三四五六七八九十]{1,3})\s*[日天](?:游|行程|旅行|旅游|游玩)?",
+        ):
+            match = re.search(pattern, t)
+            if match:
+                return clamp_days(parse_count(match.group(1)))
+        if "周末" in t:
+            return 2
+        return 3
+
+    def date_from_month_day(month: int, day: int) -> date | None:
+        today = date.today()
+        try:
+            candidate = date(today.year, month, day)
+            if candidate < today:
+                candidate = date(today.year + 1, month, day)
+            return candidate
+        except ValueError:
+            return None
+
+    def extract_start_date(t: str) -> date:
+        match = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", t)
+        if match:
+            year, month, day = map(int, match.groups())
             try:
-                return date(y,mo,d)
-            except Exception:
+                return date(year, month, day)
+            except ValueError:
                 pass
+        match = re.search(r"(\d{1,2})月(\d{1,2})[日号]", t)
+        if match:
+            parsed = date_from_month_day(int(match.group(1)), int(match.group(2)))
+            if parsed:
+                return parsed
+        if "明天" in t:
+            return date.today() + timedelta(days=1)
+        if "后天" in t:
+            return date.today() + timedelta(days=2)
+        if "五一" in t:
+            parsed = date_from_month_day(5, 1)
+            if parsed:
+                return parsed
+        if "国庆" in t:
+            parsed = date_from_month_day(10, 1)
+            if parsed:
+                return parsed
+        if "周末" in t:
+            today = date.today()
+            days_until_saturday = (5 - today.weekday()) % 7
+            return today + timedelta(days=days_until_saturday)
         return date.today()
 
+    def parse_budget_amount(value: str, unit: str | None) -> int:
+        amount = float(value)
+        unit_text = (unit or "").lower()
+        if unit_text in {"万", "w"}:
+            amount *= 10000
+        elif unit_text in {"千", "k"}:
+            amount *= 1000
+        return int(amount)
+
     def extract_budget(t: str) -> str:
-        m = re.search(r"预算\s*(\d+)", t)
-        if m:
-            amt = int(m.group(1))
-            if amt <= 2000:
-                return 'low'
-            if amt >= 6000:
-                return 'high'
-            return 'medium'
-        if '高端' in t or '品质' in t:
-            return 'high'
-        if '省钱' in t or '经济' in t:
-            return 'low'
-        return 'medium'
+        patterns = [
+            r"(?:预算|费用|花费|人均|控制在|不超过|以内|大概|约)[^\d]*(\d+(?:\.\d+)?)\s*(万|w|千|k|元|块)?",
+            r"(\d+(?:\.\d+)?)\s*(万|w|千|k|元|块)?\s*(?:预算|以内|左右|上下)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, t, flags=re.IGNORECASE)
+            if not match:
+                continue
+            amount = parse_budget_amount(match.group(1), match.group(2))
+            if amount <= 2500:
+                return "low"
+            if amount >= 6000:
+                return "high"
+            return "medium"
+        if any(keyword in t for keyword in ("高端", "品质", "豪华", "舒服一点")):
+            return "high"
+        if any(keyword in t for keyword in ("省钱", "经济", "低预算", "穷游", "实惠")):
+            return "low"
+        return "medium"
+
+    def extract_transport(t: str) -> str:
+        if any(keyword in t for keyword in ("少走路", "少步行", "不要走太多", "不想走太多", "少折腾")):
+            return "private_transport"
+        if any(keyword in t for keyword in ("打车", "出租", "网约车", "包车", "自驾")):
+            return "private_transport"
+        if any(keyword in t for keyword in ("步行", "少坐车")):
+            return "walking"
+        return "public_transit"
+
+    def extract_accommodation(t: str, budget: str) -> str:
+        if any(keyword in t for keyword in ("含早", "早餐", "酒店早餐")):
+            return "hotel_with_breakfast"
+        if any(keyword in t for keyword in ("民宿", "客栈")):
+            return "homestay"
+        if budget == "high" or any(keyword in t for keyword in ("高端", "豪华", "品质酒店")):
+            return "luxury"
+        if budget == "low" or any(keyword in t for keyword in ("经济型", "省钱")):
+            return "budget"
+        return "comfort"
 
     origin = extract_origin(text)
     city = extract_city(text, origin)
@@ -128,8 +277,8 @@ def parse_plan_text(payload: ParseRequest) -> TripPlanCreateRequest:
         'start_date': start,
         'end_date': end,
         'budget_range': budget,
-        'transport_preference': 'public_transit',
-        'accommodation_preference': 'comfort',
+        'transport_preference': extract_transport(text),
+        'accommodation_preference': extract_accommodation(text, budget),
         'notes': text,
         'duration': f"{days}天",
     }

@@ -129,15 +129,24 @@ class ProfileService:
     def update_interest_tags(self, user: User, payload: InterestTagsUpdateRequest) -> InterestTagsResponse:
         existing = self.repo.get_by_user_id(user.id)
         if not existing:
-            profile = UserProfileBase(interest_tags=payload.interest_tags)
+            # Create a fresh profile via get_or_create first, then update tags
+            # so we don't lose default values and keep profile_json consistent
+            _profile = self.get_or_create(user)
+            profile_json = {**_profile.profile.model_dump(), "interest_tags": payload.interest_tags}
+            existing = self.repo.get_by_user_id(user.id)
+            if not existing:
+                existing = UserProfile(user_id=user.id)
         else:
-            current = UserProfileBase(**existing.profile_json)
-            profile = current.model_copy(update={"interest_tags": payload.interest_tags})
+            # Preserve all existing fields in profile_json, only update interest_tags
+            profile_json = {**existing.profile_json, "interest_tags": payload.interest_tags}
 
-        updated = self.update(user, UserProfileUpdateRequest(**profile.model_dump()))
+        existing.profile_json = profile_json
+        existing.profile_summary = build_profile_summary(UserProfileBase(**profile_json))
+        existing.updated_at = utc_now()
+        saved = self.repo.save(existing)
         return InterestTagsResponse(
-            user_id=updated.user_id,
-            interest_tags=updated.profile.interest_tags,
-            profile_summary=updated.profile_summary,
-            updated_at=updated.updated_at,
+            user_id=saved.user_id,
+            interest_tags=payload.interest_tags,
+            profile_summary=saved.profile_summary,
+            updated_at=saved.updated_at,
         )

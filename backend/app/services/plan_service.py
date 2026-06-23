@@ -121,6 +121,8 @@ class PlanService:
         parsed = payload if isinstance(payload, TripPlanEditRequest) else TripPlanEditRequest.model_validate(payload)
         plan = self._get_owned_plan(plan_id, user)
         version = self._get_owned_version(version_id, user)
+        if version.plan_id != plan.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found for plan")
         latest = self.versions.get_latest_for_plan(plan.id)
         new_version = TripPlanVersion(
             plan_id=plan.id,
@@ -168,10 +170,14 @@ class PlanService:
         )
         saved = self.versions.create(new_version)
         plan.current_version_id = saved.id
-        restored_title = saved.content_json.get("title")
+
+        # Guard: content_json may be None or not a dict (e.g. from
+        # incomplete or corrupted versions).
+        content = saved.content_json if isinstance(saved.content_json, dict) else {}
+        restored_title = content.get("title")
         if isinstance(restored_title, str) and restored_title.strip():
             plan.title = restored_title.strip()
-        restored_origin = saved.content_json.get("origin")
+        restored_origin = content.get("origin")
         if isinstance(restored_origin, str):
             plan.origin = restored_origin.strip() or None
         plan.updated_at = utc_now()
@@ -225,7 +231,10 @@ class PlanService:
         return build_plan_pdf_bytes(plan=TripPlanResponse.model_validate(plan), version=TripPlanVersionResponse.model_validate(version))
 
     def _warnings_for_version(self, plan_id: int, version: TripPlanVersion) -> WeatherWarningResponse:
-        weather_info = version.content_json.get("weather_info", [])
+        content = version.content_json if isinstance(version.content_json, dict) else {}
+        weather_info = content.get("weather_info", [])
+        if not isinstance(weather_info, list):
+            weather_info = []
         return WeatherService.build_warnings(plan_id, version.id, weather_info)
 
     def _build_plan_response(self, plan: TripPlan) -> TripPlanResponse:
